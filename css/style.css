@@ -376,6 +376,32 @@ input[readonly] { background: #f1efe9; color: var(--ink-soft); }
 .exam-top .who { font-size: .88rem; color: var(--ink-soft); }
 .exam-top .who b { color: var(--ink); }
 
+.exam-side {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 14px; flex-wrap: wrap;
+}
+.save-state {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: .76rem; font-weight: 700; color: var(--ink-soft);
+  background: #f4f2ea; border: 1px solid var(--line);
+  padding: 5px 10px; border-radius: 100px; white-space: nowrap;
+  transition: color .2s ease, background .2s ease, border-color .2s ease;
+}
+.save-state i { width: 8px; height: 8px; border-radius: 50%; background: #b9b3a3; flex: 0 0 auto; }
+.save-state[data-state="saving"] { color: var(--warn); background: var(--warn-bg); border-color: #eadcba; }
+.save-state[data-state="saving"] i { background: var(--gold); animation: dotBlink 1.15s ease-in-out infinite; }
+.save-state[data-state="saved"] { color: var(--ok); background: var(--ok-bg); border-color: #cfe3d9; }
+.save-state[data-state="saved"] i { background: var(--green-500); }
+.save-state[data-state="error"] { color: var(--danger); background: var(--danger-bg); border-color: #ecccca; cursor: pointer; }
+.save-state[data-state="error"] i { background: var(--danger); }
+.save-state[data-state="offline"] { color: var(--warn); background: var(--warn-bg); border-color: #eadcba; cursor: pointer; }
+.save-state[data-state="offline"] i { background: var(--gold); }
+@media (max-width: 560px) {
+  .exam-top { flex-wrap: wrap; }
+  .exam-side { width: 100%; justify-content: space-between; }
+  .save-state { font-size: .72rem; }
+}
+
 .timer {
   display: flex;
   align-items: center;
@@ -905,6 +931,25 @@ footer.site-foot a { color: var(--green-700); text-decoration: none; }
   display: grid; place-items: center; font-weight: 800; font-size: .85rem;
 }
 .wait-who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+/* متابعة حية داخل الاختبار */
+.live-list { max-height: 380px; }
+.live-row { align-items: center; flex-wrap: wrap; }
+.live-main { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 7px; }
+.live-progress { display: flex; align-items: center; gap: 10px; }
+.live-bar {
+  flex: 1; min-width: 90px; height: 6px; border-radius: 100px;
+  background: #eeece5; overflow: hidden;
+}
+.live-bar i {
+  display: block; height: 100%; border-radius: 100px;
+  background: linear-gradient(90deg, var(--green-500), var(--green-700));
+  transition: width .35s ease;
+}
+@media (max-width: 560px) {
+  .live-main { min-width: 0; }
+  .live-row > .badge { margin-inline-start: auto; }
+}
 button:disabled { opacity: .45; cursor: not-allowed; }
 
 /* سجل الجلسات في فضاء المشرف */

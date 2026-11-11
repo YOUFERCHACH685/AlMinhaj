@@ -27,10 +27,19 @@
     sessionTimer: null,
     lastFullSync: 0,
     finalizedSessions: {},
+    finishedSeen: new Set(),
+    seenResultsReady: false,
     filter: { search: "", form: "", sort: "date", place: "", session: "" }
   };
 
   const activeRows = () => A.rows.filter(r => r.status !== "waiting" && r.status !== "removed");
+  const inProgressRows = () => {
+    if (!A.launch || !A.launch.id) return [];
+    return A.rows.filter(r =>
+      r && r.session_id === A.launch.id && r.status === "waiting" &&
+      r.started_at && !r.finished_at
+    );
+  };
   const waitingRows = () => {
     if (!A.launch || !A.launch.id) return [];
     return A.rows.filter(r => r.status === "waiting" && !r.started_at && r.session_id === A.launch.id);
@@ -126,6 +135,73 @@ function formMax(formObj) {
   return { mcq, open, total: mcq + open };
 }
 
+/* ------------------------------------------------ متابعة التقدّم الحي */
+function progressStats(row) {
+  let p = null;
+  try {
+    p = row.progress
+      ? (typeof row.progress === "string" ? JSON.parse(row.progress) : row.progress)
+      : null;
+  } catch (e) { p = null; }
+  const formKey = row.form || (p && p.form) || "A";
+  const formObj = A.bank && A.bank.forms && A.bank.forms[formKey];
+  const total = Number(p && p.total) ||
+    (formObj && Array.isArray(formObj.questions) ? formObj.questions.length : 0) || 12;
+  const answers = (p && p.answers) || {};
+  let answered = 0;
+  Object.keys(answers).forEach(k => {
+    const a = answers[k];
+    if (!a) return;
+    if (typeof a === "string") { if (a.trim()) answered++; return; }
+    if (a.choice) { answered++; return; }
+    if (typeof a.text === "string" && a.text.trim()) answered++;
+  });
+  answered = Math.min(answered, total);
+  return { answered, total, pct: total ? Math.round((answered / total) * 100) : 0 };
+}
+
+function liveState(row) {
+  if (A.launch && A.launch.status === "closed") {
+    return { cls: "badge-neutral", text: "بانتظار الحفظ النهائي", title: "ستُجمع نتيجته تلقائيًا بعد الإغلاق" };
+  }
+  const at = row.progress_at ? new Date(row.progress_at).getTime() : 0;
+  if (!at || isNaN(at)) {
+    return { cls: "badge-neutral", text: "بدأ للتو", title: "لم يصل حفظ سحابي بعد" };
+  }
+  const age = Math.max(0, Math.round((Date.now() - at) / 1000));
+  if (age <= 45) return { cls: "badge-ok", text: "نشط", title: `آخر حفظ منذ ${fmtDuration(age)}` };
+  if (age <= 180) return { cls: "badge-warn", text: "انقطاع قصير", title: `آخر حفظ منذ ${fmtDuration(age)}` };
+  return { cls: "badge-danger", text: "متوقف", title: `آخر حفظ منذ ${fmtDuration(age)} — قد يكون الاتصال منقطعًا` };
+}
+
+function finishedResultRows() {
+  return A.rows.filter(r =>
+    r && r.finished_at && r.status !== "waiting" && r.status !== "removed"
+  );
+}
+
+/* تنبيه المشرف عند وصول نتيجة جديدة دون إزعاج عند التحميل الأول. */
+function syncSeenResults(notify) {
+  const list = finishedResultRows();
+  if (!A.seenResultsReady) {
+    A.finishedSeen = new Set(list.map(r => r.id));
+    A.seenResultsReady = true;
+    return;
+  }
+  const fresh = list.filter(r => !A.finishedSeen.has(r.id));
+  A.finishedSeen = new Set(list.map(r => r.id));
+  if (!notify || !fresh.length) return;
+  const current = fresh.filter(r => A.launch && r.session_id === A.launch.id);
+  const use = current.length ? current : fresh;
+  const last = use[use.length - 1];
+  const name = `${last.candidate_first || ""} ${last.candidate_last || ""}`.trim() || "مترشح";
+  if (use.length === 1) {
+    toast(`نتيجة جديدة: ${name} — ${Math.round(Number(last.percent) || 0)}%`);
+  } else {
+    toast(`وصلت ${use.length} نتائج جديدة — آخرها ${name}`);
+  }
+}
+
 /* ============================================================== init / vues */
 function boot() {
   bindLogin();
@@ -195,8 +271,9 @@ function updatePanelSub() {
   if (!A.bank) return;
   const done = activeRows().length;
   const waiting = waitingRows().length;
+  const live = inProgressRows().length;
   $("#panel-sub").textContent =
-    `${A.bank.meta.title} · ${done} نسخة منجزة · ${waiting} في الانتظار · المرجع: ${A.bank.meta.reference}`;
+    `${A.bank.meta.title} · ${done} منجز · ${live} قيد الاختبار · ${waiting} في الانتظار · المرجع: ${A.bank.meta.reference}`;
 }
 
 async function loadAll(notify) {
@@ -210,6 +287,7 @@ async function loadAll(notify) {
     A.launch = await Store.getLaunch();
     A.sessions = await Store.getSessions(A.rows);
     A.editForm = A.editForm || "A";
+    syncSeenResults(false);
 
     const mode = Store.getMode();
     const badge = $("#mode-badge");
@@ -1811,11 +1889,12 @@ async function finalizeAbandoned(sessionId) {
     const rows = await Store.listSubmissions();
     const targets = rows.filter(r =>
       r && r.session_id === sessionId && r.status === "waiting" &&
-      r.started_at && !r.finished_at && r.progress
+      r.started_at && !r.finished_at
     );
     for (const r of targets) {
       try {
-        const p = JSON.parse(r.progress);
+        let p = {};
+        try { p = r.progress ? JSON.parse(r.progress) : {}; } catch (e) { p = {}; }
         const formKey = r.form || p.form || "A";
         const formObj = A.bank && A.bank.forms && A.bank.forms[formKey];
         if (!formObj || !Array.isArray(formObj.questions) || !formObj.questions.length) continue;
@@ -1823,6 +1902,7 @@ async function finalizeAbandoned(sessionId) {
         const started = p.startedAt || r.started_at;
         const finishedAt = new Date().toISOString();
         const duration = started ? Math.max(0, Math.round((Date.now() - new Date(started).getTime()) / 1000)) : 0;
+        const settings = A.settings || {};
         const rec = {
           ...r,
           id: r.id,
@@ -1835,7 +1915,9 @@ async function finalizeAbandoned(sessionId) {
           final_score: graded.total,
           percent: graded.percent,
           status: "auto",
-          graded_note: "تصحيح تلقائي بعد انتهاء الجلسة",
+          graded_note: p.answers
+            ? "تصحيح تلقائي بعد انتهاء الجلسة"
+            : "تصحيح تلقائي — لم تُحفظ أي إجابة",
           progress: null,
           progress_at: null,
           finalized_auto: true,
@@ -1846,7 +1928,7 @@ async function finalizeAbandoned(sessionId) {
             deviceId: r.device_id,
             details: graded.details,
             snapshot: snapshotFromBank(formObj, graded),
-            settings: { mcqSeconds: A.settings.mcqSeconds, openSeconds: A.settings.openSeconds },
+            settings: { mcqSeconds: settings.mcqSeconds, openSeconds: settings.openSeconds },
             finalizedAuto: true
           })
         };
@@ -1862,6 +1944,7 @@ async function finalizeAbandoned(sessionId) {
   if (done) {
     try {
       A.rows = await Store.listSubmissions();
+      syncSeenResults(false);
       updatePanelSub();
       fillResultFilters();
       renderSession();
@@ -1885,6 +1968,7 @@ async function refreshSessionData(notify, forceFull) {
     A.rows = rows;
     A.launch = launch;
     A.sessions = await Store.getSessions(rows);
+    syncSeenResults(true);
     updatePanelSub();
     fillResultFilters();
     renderSession();
@@ -1924,8 +2008,11 @@ function renderSession() {
   }
 
   const waiting = waitingRows();
+  const live = inProgressRows();
   const done = launch ? activeRows().filter(r => r.session_id === launch.id).length : 0;
   $("#wait-waiting-count").textContent = String(waiting.length);
+  const liveCount = $("#wait-live-count");
+  if (liveCount) liveCount.textContent = String(live.length);
   $("#wait-done-count").textContent = String(done);
 
   $("#launch-state").textContent = launch ? sessionBadge(launch).text : "لم تُنشأ أي جلسة بعد";
@@ -1949,6 +2036,7 @@ function renderSession() {
   btnClose.textContent = launch && launch.status === "waiting" ? "إلغاء الجلسة دون إطلاق" : "إنهاء الاختبار وقفل الباب";
 
   renderSessionHistory();
+  renderLiveList();
 
   /* قائمة الانتظار */
   const host = $("#waiting-list");
@@ -1985,6 +2073,51 @@ function renderSession() {
       }
     });
   });
+}
+
+/* متابعة حية للمترشحين داخل الاختبار (تقدّمهم وآخر حفظ سحابي) */
+function renderLiveList() {
+  const host = $("#live-list");
+  if (!host) return;
+  const launch = A.launch;
+  if (!launch) {
+    host.innerHTML = `<div class="table-empty">لا توجد جلسة بعد — أنشئ جلسة ثم أطلقها ليظهر هنا من بدأ الاختبار.</div>`;
+    return;
+  }
+  const live = inProgressRows()
+    .slice()
+    .sort((a, b) => new Date(a.started_at || 0) - new Date(b.started_at || 0));
+  if (!live.length) {
+    host.innerHTML = `<div class="table-empty">${launch.status === "launched"
+      ? "لا أحد داخل الاختبار في هذه اللحظة. سيظهر المترشح هنا فور بدئه."
+      : launch.status === "closed"
+        ? "لا توجد نسخ قيد الإنجاز — الجلسة منتهية."
+        : "سيظهر المترشحون هنا فور إطلاق الاختبار."}</div>`;
+    return;
+  }
+  host.innerHTML = live.map(r => {
+    const ps = progressStats(r);
+    const st = liveState(r);
+    const place = rowPlaceText(r);
+    const startedAt = r.started_at ? new Date(r.started_at).getTime() : 0;
+    const elapsed = startedAt ? Math.max(0, Math.round((Date.now() - startedAt) / 1000)) : 0;
+    const lastAt = r.progress_at ? new Date(r.progress_at).getTime() : 0;
+    const lastTxt = lastAt ? ` · آخر حفظ منذ ${fmtDuration((Date.now() - lastAt) / 1000)}` : "";
+    return `<div class="wait-row live-row">
+        <div class="live-main">
+          <div class="wait-who"><b>${esc(r.candidate_last)} ${esc(r.candidate_first)}</b>
+            <span class="small muted">${place !== "—" ? esc(place) + " · " : ""}بدأ منذ ${esc(fmtDuration(elapsed))}${esc(lastTxt)}</span></div>
+          <div class="live-progress">
+            <div class="live-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                 aria-valuenow="${ps.pct}" title="${ps.answered} من ${ps.total} سؤالًا">
+              <i style="width:${ps.pct}%"></i>
+            </div>
+            <span class="small muted nowrap">${ps.answered}/${ps.total} سؤالًا · ${ps.pct}%</span>
+          </div>
+        </div>
+        <span class="badge ${st.cls}" title="${esc(st.title)}">${esc(st.text)}</span>
+      </div>`;
+  }).join("");
 }
 
 /* سجل الجلسات: عرض، تعديل الاسم، حذف */
@@ -2159,6 +2292,12 @@ function bindWord() {
   });
 }
 
+/* عند عودة المشرف إلى الصفحة من الخلفية: مزامنة كاملة فورية بدل انتظار المؤقّت. */
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || !isAuthed() || !A.bank) return;
+  refreshSessionData(false, true);
+});
+
 /* ==================================================================== démarrage */
 document.addEventListener("DOMContentLoaded", boot);
 document.addEventListener("keydown", ev => {
@@ -2166,7 +2305,3 @@ document.addEventListener("keydown", ev => {
 });
 
 })();
-
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && isAuthed()) refreshSessionData(false);
-});

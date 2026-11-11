@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=9">
+<link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
 
@@ -138,13 +138,18 @@
         <div><b id="ex-name">—</b></div>
         <div class="small" id="ex-form">—</div>
       </div>
-      <div class="timer" id="timer" role="timer" aria-label="الوقت المتبقي">
-        <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
-          <circle class="ring-bg" cx="22" cy="22" r="18" fill="none" stroke-width="4"></circle>
-          <circle class="ring-fg" id="ring" cx="22" cy="22" r="18" fill="none" stroke-width="4"
-                  stroke-dasharray="113.1" stroke-dashoffset="0"></circle>
-        </svg>
-        <span class="tnum" id="time-text">00:45</span>
+      <div class="exam-side">
+        <span class="save-state" id="save-state" data-state="idle" role="status" aria-live="polite" title="حفظ التقدّم تلقائيًا في السحابة">
+          <i aria-hidden="true"></i><span id="save-state-text">حفظ تلقائي مفعّل</span>
+        </span>
+        <div class="timer" id="timer" role="timer" aria-label="الوقت المتبقي">
+          <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="ring-bg" cx="22" cy="22" r="18" fill="none" stroke-width="4"></circle>
+            <circle class="ring-fg" id="ring" cx="22" cy="22" r="18" fill="none" stroke-width="4"
+                    stroke-dasharray="113.1" stroke-dashoffset="0"></circle>
+          </svg>
+          <span class="tnum" id="time-text">00:45</span>
+        </div>
       </div>
     </div>
 
@@ -234,9 +239,9 @@
   </div>
 </footer>
 
-<script src="js/bank.js?v=9"></script>
-<script src="js/config.js?v=9"></script>
-<script src="js/core.js?v=9"></script>
-<script src="js/exam.js?v=9"></script>
+<script src="js/bank.js?v=10"></script>
+<script src="js/config.js?v=10"></script>
+<script src="js/core.js?v=10"></script>
+<script src="js/exam.js?v=10"></script>
 </body>
 </html>

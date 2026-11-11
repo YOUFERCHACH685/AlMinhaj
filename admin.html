@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=9">
+<link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
 
@@ -110,6 +110,7 @@
           </dl>
           <div class="kpi-grid" style="margin-top:12px">
             <div class="kpi"><div class="k">في الانتظار الآن</div><div class="v" id="wait-waiting-count">0</div></div>
+            <div class="kpi"><div class="k">قيد الاختبار الآن</div><div class="v" id="wait-live-count">0</div></div>
             <div class="kpi"><div class="k">أُنهوا الاختبار</div><div class="v" id="wait-done-count">0</div></div>
           </div>
           <div class="btn-row" style="margin-top:16px">
@@ -131,6 +132,19 @@
           <p class="small muted">المترشحون المسجلون والمنتظرون انطلاق الاختبار، يُحدَّث تلقائيًا كل ثوانٍ.</p>
           <div id="waiting-list" class="waiting-list"></div>
         </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-head">
+          <h3 style="margin:0">المترشحون أثناء الاختبار</h3>
+          <span class="small muted" id="live-note">تحديث تلقائي كل 4 ثوانٍ</span>
+        </div>
+        <p class="small muted">
+          متابعة حية لمن بدأ الاختبار: عدد الأسئلة المجابة، نسبة التقدّم، وآخر حفظ سحابي.
+          «نشط» يعني أن الهاتف يحفظ تقدّمه بانتظام؛ «متوقف» قد يعني انقطاع الاتصال أو مغادرة الصفحة.
+          عند إغلاق الجلسة يُصحَّح تلقائيًا كل من لم يُنهِ نسخته اعتمادًا على آخر تقدّم محفوظ.
+        </p>
+        <div id="live-list" class="waiting-list live-list"></div>
       </div>
 
       <div class="card" style="margin-top:18px">
@@ -362,12 +376,12 @@
   </div>
 </footer>
 
-<script src="js/bank.js?v=9"></script>
-<script src="js/config.js?v=9"></script>
-<script src="js/core.js?v=9"></script>
+<script src="js/bank.js?v=10"></script>
+<script src="js/config.js?v=10"></script>
+<script src="js/core.js?v=10"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="js/word.js?v=9"></script>
-<script src="js/admin.js?v=9"></script>
+<script src="js/word.js?v=10"></script>
+<script src="js/admin.js?v=10"></script>
 </body>
 </html>

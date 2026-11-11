@@ -9,7 +9,7 @@
 (function () {
   "use strict";
 
-  const { Store, gradePaper, esc, shuffle, uid, fmtDate, fmtClock, fmtDuration, toast, wordCount, deviceId, normalizeAr, PLACE_LIST, placeLabel } = window.App;
+  const { Store, gradePaper, esc, shuffle, uid, fmtDate, fmtClock, fmtDuration, toast, wordCount, deviceId, normalizeAr, pad2, PLACE_LIST, placeLabel } = window.App;
 
 const KEYS = { progress: "manhaj_progress_v1", wait: "manhaj_waiting_v1" };
 
@@ -38,7 +38,9 @@ const S = {
   waitClock: null,       /* مؤقّت عرض مدة الانتظار */
   sessionPoll: null,     /* مؤقّت كشف إغلاق الجلسة أثناء الاختبار */
   progressTimer: null,   /* حفظ دوري للتقدّم في السحابة */
+  progressSaving: false, /* منع تراكب طلبات الحفظ */
   lastProgressAt: 0,
+  lastCloudSaveAt: 0,
   waitSince: 0,
   countPoll: null
 };
@@ -321,17 +323,45 @@ function stopProgressTimer() {
 
 /* نسخة مختصرة من التقدّم تُحفظ في السحابة: تسمح للمشرف بتصحيح من غادر
    قبل انتهاء الوقت، وتُستعاد النتيجة عند إعادة فتح الصفحة. */
-async function saveProgressNow() {
-  if (!S.examStarted || S.finished || S.persisting || !S.waitingId) return;
-  if (Date.now() - S.lastProgressAt < 3000) return;
+function setSaveState(kind, text) {
+  const el = document.getElementById("save-state");
+  if (!el) return;
+  el.dataset.state = kind;
+  const labels = {
+    idle: "حفظ تلقائي مفعّل",
+    saving: "جارٍ الحفظ…",
+    saved: "تم الحفظ",
+    error: "تعذّر الحفظ — أعد المحاولة",
+    offline: "لا اتصال — حفظ محلي"
+  };
+  const titles = {
+    idle: "حفظ التقدّم تلقائيًا في السحابة",
+    saving: "جارٍ إرسال تقدّمك إلى المشرف",
+    saved: "تم حفظ تقدّمك بنجاح",
+    error: "اضغط هنا لإعادة المحاولة الآن",
+    offline: "ستُحفظ أجوبتك محليًا وتُرسل عند عودة الاتصال"
+  };
+  const label = document.getElementById("save-state-text");
+  const msg = text || labels[kind] || labels.idle;
+  if (label) label.textContent = msg; else el.textContent = msg;
+  el.title = titles[kind] || titles.idle;
+}
+
+async function saveProgressNow(force) {
+  if (!S.examStarted || S.finished || S.persisting || !S.waitingId || S.progressSaving) return;
+  if (!force && Date.now() - S.lastProgressAt < 3000) return;
   S.lastProgressAt = Date.now();
   captureOpenAnswer();
+  S.progressSaving = true;
+  setSaveState("saving");
   try {
     await Store.updateSubmission(S.waitingId, {
       progress: JSON.stringify({
         v: 1,
         answers: S.answers,
         idx: S.idx,
+        index: S.idx + 1,
+        total: S.questions.length,
         form: S.formKey,
         startedAt: S.startedAt,
         candidate: S.candidate,
@@ -339,8 +369,15 @@ async function saveProgressNow() {
       }),
       progress_at: new Date().toISOString()
     });
+    S.lastCloudSaveAt = Date.now();
+    const d = new Date(S.lastCloudSaveAt);
+    const clock = `${d.getHours()}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+    setSaveState("saved", `تم الحفظ ${clock}`);
   } catch (e) {
-    /* الاتصال متعطّل: النسخة المحلية كافية للاستئناف على نفس الهاتف */
+    if (navigator.onLine === false) setSaveState("offline");
+    else setSaveState("error");
+  } finally {
+    S.progressSaving = false;
   }
 }
 
@@ -1101,6 +1138,7 @@ async function startExam(candidate, opts) {
     stopWaitClock();
 
     setMainView("#view-exam");
+    setSaveState(navigator.onLine === false ? "offline" : "idle");
     $("#ex-name").textContent = `${candidate.first} ${candidate.last}`;
     const placeTxt = placeLabel(candidate.placeCode, candidate.placeName);
     $("#ex-form").textContent =
@@ -1333,6 +1371,14 @@ async function boot() {
   $("#btn-next").addEventListener("click", () => nextQuestion(false));
   $("#btn-pdf").addEventListener("click", exportPdf);
 
+  const saveStateEl = $("#save-state");
+  if (saveStateEl) saveStateEl.addEventListener("click", () => {
+    if (saveStateEl.dataset.state === "error" || saveStateEl.dataset.state === "offline") {
+      S.lastProgressAt = 0;
+      saveProgressNow(true);
+    }
+  });
+
   document.addEventListener("keydown", ev => {
     if ($("#view-exam").hidden || S.finished) return;
     const q = S.questions[S.idx];
@@ -1410,12 +1456,27 @@ function resumeExam(p) {
   S.resumeRemaining = Math.max(0, Math.min(allotted, rem));
 
   setMainView("#view-exam");
+  setSaveState(navigator.onLine === false ? "offline" : "idle");
   $("#ex-name").textContent = `${S.candidate.first} ${S.candidate.last}`;
   $("#ex-form").textContent = `${(S.bank.forms[S.formKey] && S.bank.forms[S.formKey].label) || S.formKey} · ${S.questions.length} أسئلة · ${formTotal(S.form)} نقطة`;
   renderQuestion();
   startProgressTimer();
   startSessionPoll();
+  checkSessionEnded();
   toast("تمّ استئناف المحاولة");
+}
+
+/* عند العودة إلى الصفحة من الخلفية: نتحقّق فورًا من إطلاق الجلسة أو إغلاقها،
+   لأن متصفحات الهواتف تُبطئ المؤقّتات في الخلفية. */
+function wakeRefresh() {
+  if (document.hidden) return;
+  const waitView = $("#view-wait");
+  if (waitView && !waitView.hidden && !S.examStarted) {
+    checkLaunch();
+    refreshWaitingCount(true);
+  }
+  const examView = $("#view-exam");
+  if (examView && !examView.hidden && !S.finished) checkSessionEnded();
 }
 
 document.addEventListener("visibilitychange", () => {
@@ -1423,6 +1484,7 @@ document.addEventListener("visibilitychange", () => {
     if (S.examStarted && !S.finished) { try { saveProgressNow(); } catch (e) { /* ignore */ } }
     return;
   }
+  wakeRefresh();
   if ($("#view-exam").hidden || S.finished) return;
   const q = S.questions[S.idx];
   if (!q || !S.qDeadline) return;
@@ -1430,6 +1492,21 @@ document.addEventListener("visibilitychange", () => {
   S.remaining = Math.max(0, Math.ceil((S.qDeadline - Date.now()) / 1000));
   renderTimer(allotted);
   if (S.remaining <= 0) { stopTick(); nextQuestion(true); }
+});
+
+window.addEventListener("pageshow", ev => {
+  if (ev.persisted) wakeRefresh();
+});
+
+window.addEventListener("offline", () => {
+  if (S.examStarted && !S.finished) setSaveState("offline");
+});
+
+window.addEventListener("online", () => {
+  if (!S.examStarted || S.finished) return;
+  S.lastProgressAt = 0;
+  saveProgressNow(true);
+  checkSessionEnded();
 });
 
 window.addEventListener("pagehide", () => {

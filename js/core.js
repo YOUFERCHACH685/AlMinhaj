@@ -398,7 +398,7 @@ const Store = (() => {
   const SUMMARY_FIELDS = [
     "session_id", "device_id", "candidate_first", "candidate_last", "place_code",
     "place_name", "status", "started_at", "finished_at", "form", "mcq_score",
-    "open_score", "final_score", "percent", "joined_at"
+    "open_score", "final_score", "percent", "joined_at", "progress_at"
   ];
   function summaryOf(rec) {
     const out = { id: rec.id, updated_at: new Date().toISOString() };
