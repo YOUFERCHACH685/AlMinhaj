@@ -994,10 +994,18 @@ async function handleJoin(c) {
   err.textContent = "";
   btn.disabled = true;
   try {
-    let launch = await Store.getLaunch();
+    let launch = null;
+    for (let i = 0; i < 4 && !launch; i++) {
+      try { launch = await Store.getLaunch(); } catch (e) { launch = null; }
+      if (!launch && i < 3) await new Promise(r => setTimeout(r, 1200));
+    }
     S.launch = launch;
     if (!launch) {
-      err.textContent = "لم تُنشئ المشرف جلسة الاختبار بعد. انتظر قليلًا ثم حاول مجدًا.";
+      if (Store.getMode() !== "cloud") {
+        err.textContent = "لا توجد جلسة على هذا الجهاز. استخدم رابط المترشحين الذي أرسله المشرف (يحتوي على ?db=...)، أو اطلب منه إرساله.";
+      } else {
+        err.textContent = "لم تُنشئ المشرف جلسة اختبار بعد، أو تعذّر الوصول إلى الخادم. انتظر قليلًا ثم حاول مجدًا.";
+      }
       return;
     }
 
@@ -1090,6 +1098,17 @@ async function boot() {
   }, 15000);
 
   fillPlaceOptions();
+
+  if (Store.getMode() !== "cloud") {
+    const warn = document.createElement("div");
+    warn.className = "callout callout-warn";
+    warn.style.marginBottom = "14px";
+    warn.innerHTML = "<b>تنبيه:</b> أنت لست على رابط المترشحين (لا مزامنة). " +
+      "استخدم الرابط الذي أرسله المشرف (يبدأ بـ <code>index.html?db=...</code>) " +
+      "لتعمل قاعة الانتظار والنتائج على هاتفك.";
+    const intro = $("#view-intro");
+    if (intro) intro.insertBefore(warn, intro.firstChild);
+  }
 
   /* حالة جلسة الإطلاق الحالية */
   let launchNow = null;
