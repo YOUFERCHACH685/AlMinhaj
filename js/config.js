@@ -7,7 +7,7 @@ window.MANHAJ_CONFIG = {
      مثال: "https://manhaj-12345-default-rtdb.firebaseio.com"
      اتركه فارغًا إذا كنت تستعمل التخزين المحلي أو خادم tables المحلي.
      يمكن للمشرف أيضًا لصق العنوان من «الإعدادات» داخل فضاء المشرف. */
-  firebaseUrl: "",
+  firebaseUrl: "https://alminhaj-test-default-rtdb.europe-west1.firebasedatabase.app",
 
   /* جذر البيانات داخل قاعدة Firebase (غيّره إذا أردت عزْل اختبار آخر). */
   firebaseRoot: "manhaj"
