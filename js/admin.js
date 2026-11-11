@@ -1948,13 +1948,13 @@ async function removeSessionRecord(id) {
       "، وتُحذف سجلات المنتظرين، وتبقى النسخ المنجزة في النتائج.";
     if (!confirm(msg)) return;
     const waiting = A.rows.filter(r => r.session_id === id && r.status === "waiting");
-    const inProgress = waiting.filter(r => r.started_at);
+    const inProgress = waiting.filter(r => r.started_at && !r.finished_at);
+    const stale = waiting.filter(r => !r.started_at || r.finished_at);
     if (inProgress.length) {
-      toast("هناك مترشحون داخل الاختبار الآن — انتظر إنهاءهم ثم احذف الجلسة", true);
-      return;
+      const ok = confirm(`هناك ${inProgress.length} مترشح(ون) بدأوا الاختبار ولم يُنهوه (أو لم تُحدّث حالتهم).\nحذف الجلسة على أي حال؟ (يُحذف سجل الانتظار، وتبقى النسخ المنجزة)`);
+      if (!ok) return;
     }
-    const stale = waiting.filter(r => !r.started_at);
-    for (const r of stale) {
+    for (const r of waiting) {
       try { await Store.deleteSubmission(r.id); } catch (e) { /* ignore */ }
     }
     await Store.deleteSession(id);
