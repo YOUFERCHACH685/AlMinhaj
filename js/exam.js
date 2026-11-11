@@ -36,6 +36,7 @@ const S = {
   waitingId: null,       /* معرّف سجل الانتظار لهذه المحاولة (إن وُجد) */
   waitPoll: null,        /* مؤقّت استطلاع حالة الإطلاق */
   waitClock: null,       /* مؤقّت عرض مدة الانتظار */
+  sessionPoll: null,     /* مؤقّت كشف إغلاق الجلسة أثناء الاختبار */
   waitSince: 0,
   countPoll: null
 };
@@ -320,6 +321,7 @@ async function finishExam() {
   if (S.finished || S.persisting) return;
   S.persisting = true;
   stopTick();
+  stopSessionPoll();
 
   let graded;
   try {
@@ -649,6 +651,7 @@ function updateWaitElapsed() {
 
 function stopWaitPoll() { if (S.waitPoll) { clearInterval(S.waitPoll); S.waitPoll = null; } }
 function stopWaitClock() { if (S.waitClock) { clearInterval(S.waitClock); S.waitClock = null; } }
+function stopSessionPoll() { if (S.sessionPoll) { clearInterval(S.sessionPoll); S.sessionPoll = null; } }
 
 function startWaitPoll() {
   stopWaitPoll();
@@ -984,6 +987,19 @@ async function startExam(candidate, opts) {
 
     renderQuestion();
     window.scrollTo({ top: 0 });
+
+    stopSessionPoll();
+    S.sessionPoll = setInterval(async () => {
+      if (S.finished) { stopSessionPoll(); return; }
+      try {
+        const l = await Store.getLaunch();
+        if (l && l.status === "closed" && (!S.launch || l.id === S.launch.id)) {
+          stopSessionPoll();
+          toast("أُغلقت الجلسة — سيتم عرض النتيجة", true);
+          await finishExam();
+        }
+      } catch (e) { /* ignore */ }
+    }, 5000);
   })().finally(() => { startingPromise = null; });
   return startingPromise;
 }
@@ -1244,6 +1260,18 @@ function resumeExam(p) {
   $("#ex-name").textContent = `${S.candidate.first} ${S.candidate.last}`;
   $("#ex-form").textContent = `${(S.bank.forms[S.formKey] && S.bank.forms[S.formKey].label) || S.formKey} · ${S.questions.length} أسئلة · ${formTotal(S.form)} نقطة`;
   renderQuestion();
+  stopSessionPoll();
+  S.sessionPoll = setInterval(async () => {
+    if (S.finished) { stopSessionPoll(); return; }
+    try {
+      const l = await Store.getLaunch();
+      if (l && l.status === "closed" && (!S.launch || l.id === S.launch.id)) {
+        stopSessionPoll();
+        toast("أُغلقت الجلسة — سيتم عرض النتيجة", true);
+        await finishExam();
+      }
+    } catch (e) { /* ignore */ }
+  }, 5000);
   toast("تمّ استئناف المحاولة");
 }
 

@@ -1788,7 +1788,7 @@ async function refreshSessionData(notify) {
     if (dashPanel && !dashPanel.hidden) renderDash();
     if (notify) toast("حُدّثت قائمة الانتظار");
   } catch (e) {
-    /* صامت في الخلفية */
+    console.warn("refreshSessionData failed", e);
   }
 }
 
@@ -2050,3 +2050,7 @@ document.addEventListener("keydown", ev => {
 });
 
 })();
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && isAuthed()) refreshSessionData(false);
+});
