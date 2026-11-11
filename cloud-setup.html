@@ -1,10 +1,13 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ربط الاختبار بقاعدة سحابية — المنهاج النبوي</title>
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=9">
   <style>
     .setup-steps { counter-reset: step; list-style: none; padding: 0; margin: 0; }
     .setup-steps > li {
@@ -95,19 +98,22 @@
         <li>
           انسخ <b>رابط قاعدة البيانات</b> الظاهر أعلى الصفحة. يبدأ بـ
           <code>https://...firebaseio.com</code> أو <code>https://...firebasedatabase.app</code>.
+          في هذه النسخة الرابط <b>مدمج مسبقًا</b> في <code>js/config.js</code>، فلا حاجة لأي خطوة إضافية
+          إن كنت تستعمل القاعدة نفسها.
+        </li>
+        <li>
+          إن أنشأت قاعدة جديدة، افتح <code>js/config.js</code> وضع الرابط في
+          <code>firebaseUrl</code> ثم أعد نشر الموقع. هذا يجعل <b>كل الأجهزة</b> تتصل
+          بالقاعدة نفسها تلقائيًا. (حفظ الرابط من تبويب «الإعدادات» يخصّ جهاز المشرف فقط.)
         </li>
         <li>
           افتح <a href="admin.html">فضاء المشرف</a> ← تبويب <b>«الإعدادات»</b> ←
-          قسم <b>«المزامنة بين الأجهزة»</b>، الصق الرابط ثم اضغط <b>«حفظ الرابط»</b>.
+          قسم <b>«المزامنة بين الأجهزة»</b> للتأكد من أن الشارة تقول <b>«مفعّل»</b>.
+          لا تحتاج إلى نسخ أي رابط للمترشحين: رابط <code>index.html</code> العادي يكفي.
         </li>
         <li>
-          بعد إعادة التحميل، اضغط <b>«نسخ رابط المترشحين»</b>. انسخ الرابط الذي يبدأ بـ
-          <code>index.html?db=...</code> ووزّعه على المترشحين (واتساب، رمز QR، ...).
-          هذا الرابط هو الذي يفعّل المزامنة على هواتفهم.
-        </li>
-        <li>
-          اختبر من هاتفين: أنشئ جلسة من هاتف المشرف، ثم افتح رابط المترشحين على الهاتف الآخر
-          وسجّل اسمًا. يجب أن يظهر المترشح في قائمة الانتظار عند المشرف.
+          اختبر من هاتفين: أنشئ جلسة من هاتف المشرف، ثم افتح <code>index.html</code> على الهاتف الآخر
+          وسجّل اسمًا. يجب أن يظهر المترشح في قائمة الانتظار عند المشرف، وأن تصل النتيجة بعد الإنهاء.
         </li>
       </ol>
 
@@ -121,7 +127,8 @@
       <ul>
         <li>تأكد أن الرابط يبدأ بـ <code>https://</code> وأنه بلا شرطة <code>/</code> في آخره.</li>
         <li>تأكد أن قاعدة البيانات أُنشئت فعلاً (وليس Firestore فقط).</li>
-        <li>افتح رابط المترشحين الذي يحوي <code>?db=</code>، وليس الرابط العادي.</li>
+        <li>افتح الصفحة العادية <code>index.html</code>. المزامنة تُفعّل تلقائيًا من <code>js/config.js</code>.</li>
+        <li>إن كانت الشارة «غير مفعّل»: أعد تحميل الصفحة بقوة (Ctrl+F5)، أو افتحها في نافذة خاصة لاستبعاد نسخة قديمة مخزّنة.</li>
         <li>إذا كانت القاعدة جديدة، انتظر دقيقة بعد إنشائها ثم أعد المحاولة.</li>
         <li>افتح وحدة تحكم المتصفح (F12) وتحقق من رسائل الخطأ.</li>
       </ul>

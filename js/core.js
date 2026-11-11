@@ -225,33 +225,98 @@ const Store = (() => {
      نقرأ العنوان من config.js أو من ?db=... (رابط المترشحين) أو من الإعدادات. */
   const CFG = window.MANHAJ_CONFIG || {};
   const CLOUD_ROOT = String(CFG.firebaseRoot || "manhaj").replace(/^\/+|\/+$/g, "") || "manhaj";
-  let CLOUD_BASE = String(CFG.firebaseUrl || "").trim().replace(/\/+$/, "");
+  const LS_OVERRIDE = "manhaj_cloud_override_v1";
+  const normUrl = u => String(u || "").trim().replace(/\/+$/, "");
+  let CLOUD_BASE = normUrl(CFG.firebaseUrl);
   try {
     const param = new URLSearchParams(location.search).get("db");
+    const saved = localStorage.getItem(LS_CLOUD);
+    const override = localStorage.getItem(LS_OVERRIDE) === "1";
     if (param && isCloudUrl(param)) {
-      CLOUD_BASE = param.trim().replace(/\/+$/, "");
+      CLOUD_BASE = normUrl(param);
       localStorage.setItem(LS_CLOUD, CLOUD_BASE);
-    } else {
-      const saved = localStorage.getItem(LS_CLOUD);
-      if (saved && isCloudUrl(saved)) CLOUD_BASE = saved.trim().replace(/\/+$/, "");
+    } else if (CLOUD_BASE && isCloudUrl(CLOUD_BASE) && !override) {
+      /* config.js هو المرجع الافتراضي لكل الأجهزة (تجنّب رابط قديم محفوظ) */
+    } else if (saved && isCloudUrl(saved)) {
+      CLOUD_BASE = normUrl(saved);
+    } else if (!isCloudUrl(CLOUD_BASE)) {
+      CLOUD_BASE = "";
     }
   } catch (e) { /* ignore */ }
   const cloudOn = () => !!CLOUD_BASE;
 
-  function cloudUrl(path) {
-    return `${CLOUD_BASE}/${CLOUD_ROOT}/${String(path).replace(/^\/+/, "")}.json`;
+  /* إذا وصلت الصفحة بنسخة قديمة/مخزّنة من config.js بلا عنوان،
+     نقرأ الملف مباشرة (بدون cache) حتى تعمل المزامنة تلقائيًا على كل هاتف. */
+  let cloudResolvePromise = null;
+  async function ensureCloudBase() {
+    if (CLOUD_BASE) return true;
+    if (cloudResolvePromise) return cloudResolvePromise;
+    cloudResolvePromise = (async () => {
+      try {
+        const res = await fetch(`js/config.js?fresh=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) return false;
+        const txt = await res.text();
+        const m = txt.match(/firebaseUrl\s*:\s*["']([^"']+)["']/);
+        if (m && isCloudUrl(m[1])) {
+          CLOUD_BASE = normUrl(m[1]);
+          try { localStorage.setItem(LS_CLOUD, CLOUD_BASE); } catch (e) { /* ignore */ }
+          return true;
+        }
+      } catch (e) { /* ignore */ }
+      return false;
+    })();
+    const ok = await cloudResolvePromise;
+    cloudResolvePromise = null;
+    return ok;
   }
+
+  let lastError = null;
+  function cloudUrl(path) {
+    const clean = String(path).replace(/^\/+/, "").replace(/\/+$/, "");
+    return `${CLOUD_BASE}/${CLOUD_ROOT}/${clean}.json`;
+  }
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
   async function cloudRequest(path, options) {
     const opts = options || {};
-    const res = await fetch(cloudUrl(path), {
-      method: opts.method || "GET",
-      cache: "no-store",
-      headers: { "Content-Type": "application/json" },
-      body: opts.body
-    });
-    if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
-    const text = await res.text();
-    return text ? JSON.parse(text) : null;
+    let lastErr = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const res = await fetch(cloudUrl(path), {
+          method: opts.method || "GET",
+          cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: opts.body,
+          signal: ctrl.signal
+        });
+        clearTimeout(timer);
+        if (res.ok) {
+          lastError = null;
+          const text = await res.text();
+          return text ? JSON.parse(text) : null;
+        }
+        const err = new Error(
+          res.status === 401 || res.status === 403
+            ? "تعذّر الوصول إلى Firebase: قواعد الأمان ترفض القراءة/الكتابة (401/403)."
+            : `Firebase HTTP ${res.status}`
+        );
+        err.status = res.status;
+        /* لا نعيد المحاولة على أخطاء 4xx غير 429 */
+        if (res.status !== 429 && res.status < 500) throw err;
+        lastErr = err;
+      } catch (e) {
+        clearTimeout(timer);
+        if (e && e.status && e.status !== 429 && e.status < 500) {
+          lastError = e;
+          throw e;
+        }
+        lastErr = e;
+      }
+      if (attempt < 2) await sleep(500 * (attempt + 1));
+    }
+    lastError = lastErr || new Error("تعذّر الاتصال بقاعدة Firebase");
+    throw lastError;
   }
   const cloudGet = path => cloudRequest(path);
   const cloudPut = (path, value) => cloudRequest(path, { method: "PUT", body: JSON.stringify(value) });
@@ -276,13 +341,17 @@ const Store = (() => {
     }
   }
 
+  let lastProbeAt = 0;
   async function probe() {
-    if (mode) return mode;
-    if (cloudOn()) { mode = "cloud"; return mode; }
+    if (mode === "cloud" || mode === "api") return mode;
+    /* لا نُثبّت الوضع المحلي إلى الأبد: نعيد المحاولة كل 15 ثانية */
+    if (mode && Date.now() - lastProbeAt < 15000) return mode;
+    lastProbeAt = Date.now();
+    if (await ensureCloudBase()) { mode = "cloud"; return mode; }
     try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 6000);
-      const res = await fetch("tables/submissions?limit=1", { signal: ctrl.signal });
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch("tables/submissions?limit=1", { signal: ctrl.signal, cache: "no-store" });
       clearTimeout(t);
       if (res.ok) {
         const json = await res.json();
@@ -326,6 +395,25 @@ const Store = (() => {
     });
   }
 
+  const SUMMARY_FIELDS = [
+    "session_id", "device_id", "candidate_first", "candidate_last", "place_code",
+    "place_name", "status", "started_at", "finished_at", "form", "mcq_score",
+    "open_score", "final_score", "percent", "joined_at"
+  ];
+  function summaryOf(rec) {
+    const out = { id: rec.id, updated_at: new Date().toISOString() };
+    SUMMARY_FIELDS.forEach(k => { out[k] = rec[k] === undefined ? null : rec[k]; });
+    return out;
+  }
+  function summaryPatch(patch) {
+    const out = { updated_at: patch.updated_at || new Date().toISOString() };
+    SUMMARY_FIELDS.forEach(k => { if (patch[k] !== undefined) out[k] = patch[k]; });
+    return out;
+  }
+  function isResultPatch(patch) {
+    return SUMMARY_FIELDS.some(k => patch[k] !== undefined);
+  }
+
   async function listSubmissions() {
     const m = await probe();
     if (m === "cloud") {
@@ -351,11 +439,87 @@ const Store = (() => {
     return normalizePercents(lsRead(LS_SUB, []).sort((a, b) => new Date(b.finished_at || 0) - new Date(a.finished_at || 0)));
   }
 
+  async function listSummaries() {
+    const m = await probe();
+    if (m === "cloud") {
+      const obj = await cloudGet("summaries");
+      let list = obj && typeof obj === "object"
+        ? Object.keys(obj).map(k => ({ ...(obj[k] || {}), id: (obj[k] && obj[k].id) || k }))
+        : [];
+      if (!list.length) {
+        /* ترحيل تلقائي: بناء الفهرس من النسخ الموجودة */
+        const rows = await listSubmissions();
+        list = rows.map(summaryOf);
+        await Promise.allSettled(list.map(row =>
+          cloudPut(`summaries/${encodeURIComponent(row.id)}`, row)
+        ));
+      }
+      return list.filter(x => x && x.id && x.status !== "removed");
+    }
+    return (await listSubmissions()).map(r => ({
+      ...summaryOf(r),
+      updated_at: r.updated_at || r.finished_at || r.joined_at || null
+    }));
+  }
+
+  async function getSubmission(id) {
+    const m = await probe();
+    if (m === "cloud") {
+      const row = await cloudGet(`submissions/${encodeURIComponent(id)}`);
+      return row && typeof row === "object" ? { ...row, id: row.id || id } : null;
+    }
+    const rows = await listSubmissions();
+    return rows.find(r => r.id === id) || null;
+  }
+
+  /* تحديث تدريجي: نقرأ الفهرس الخفيف ثم نجلب فقط النسخ التي تغيّرت.
+     يخفّف الحمل كثيرًا عند 30+ مترشحًا. */
+  async function syncSubmissions(current) {
+    const m = await probe();
+    if (m !== "cloud") return listSubmissions();
+    const base = Array.isArray(current) ? current : [];
+    if (!base.length) return listSubmissions();
+    const summaries = await listSummaries();
+    const byId = new Map(base.map(r => [r.id, r]));
+    const changed = summaries.filter(s => {
+      const r = byId.get(s.id);
+      if (!r) return true;
+      return String(r.updated_at || "") !== String(s.updated_at || "") ||
+             String(r.finished_at || "") !== String(s.finished_at || "") ||
+             String(r.status || "") !== String(s.status || "");
+    });
+    const fetched = await Promise.all(changed.map(async s => {
+      try {
+        const row = await getSubmission(s.id);
+        return row ? { ...row, updated_at: s.updated_at } : null;
+      } catch (e) { return null; }
+    }));
+    /* لا نحذف صفوفًا لمجرد غيابها من الفهرس (قد يكون الفهرس قيد الترحيل).
+       التنظيف الكامل يتم عند التحديث اليدوي/الدوري. */
+    const merged = new Map(base.map(r => [r.id, r]));
+    fetched.forEach(r => { if (r) merged.set(r.id, r); });
+    return Array.from(merged.values());
+  }
+
+  function setCloudUrl(url) {
+    const u = normUrl(url);
+    if (!isCloudUrl(u)) throw new Error("رابط Firebase غير صالح");
+    CLOUD_BASE = u;
+    mode = "cloud";
+    try {
+      localStorage.setItem(LS_CLOUD, u);
+      localStorage.setItem(LS_OVERRIDE, "1");
+    } catch (e) { /* ignore */ }
+    return u;
+  }
+
   async function addSubmission(rec) {
     const m = await probe();
     if (m === "cloud") {
       const row = { ...rec, id: rec.id || uid(), created_at: rec.created_at || Date.now() };
       await cloudPut(`submissions/${encodeURIComponent(row.id)}`, row);
+      try { await cloudPut(`summaries/${encodeURIComponent(row.id)}`, summaryOf(row)); }
+      catch (e) { console.warn("تعذّر تحديث فهرس النسخ", e); }
       return row;
     }
     if (m === "api") {
@@ -387,8 +551,14 @@ const Store = (() => {
   async function updateSubmission(id, patch) {
     const m = await probe();
     if (m === "cloud") {
-      await cloudPatch(`submissions/${encodeURIComponent(id)}`, patch);
-      return { ...patch, id };
+      const next = { ...patch };
+      if (isResultPatch(patch)) next.updated_at = new Date().toISOString();
+      await cloudPatch(`submissions/${encodeURIComponent(id)}`, next);
+      if (isResultPatch(patch)) {
+        try { await cloudPatch(`summaries/${encodeURIComponent(id)}`, summaryPatch(next)); }
+        catch (e) { console.warn("تعذّر تحديث فهرس النسخ", e); }
+      }
+      return { ...next, id };
     }
     if (m === "api") {
       try {
@@ -420,6 +590,8 @@ const Store = (() => {
   async function deleteSubmission(id) {
     const m = await probe();
     if (m === "cloud") {
+      try { await cloudDelete(`summaries/${encodeURIComponent(id)}`); }
+      catch (e) { console.warn("تعذّر حذف فهرس النسخة", e); }
       await cloudDelete(`submissions/${encodeURIComponent(id)}`);
       return true;
     }
@@ -667,9 +839,11 @@ const Store = (() => {
   }
 
   return {
-    probe, getMode, listSubmissions, addSubmission, updateSubmission,
-    deleteSubmission, getBank, saveBank, getSettings, saveSettings, resetBank,
-    getLaunch, saveLaunch, clearLaunch, getSessions, updateSession, deleteSession
+    probe, getMode, listSubmissions, listSummaries, getSubmission, syncSubmissions,
+    addSubmission, updateSubmission, deleteSubmission, setCloudUrl,
+    getBank, saveBank, getSettings, saveSettings, resetBank,
+    getLaunch, saveLaunch, clearLaunch, getSessions, updateSession, deleteSession,
+    getLastError: () => lastError
   };
 })();
 

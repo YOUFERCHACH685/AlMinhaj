@@ -6,7 +6,7 @@
 (function () {
   "use strict";
 
-  const { Store, esc, fmtDate, fmtDuration, scoreClass, toast, pad2, sha256hex, PLACE_LIST, placeName, placeLabel } = window.App;
+  const { Store, esc, fmtDate, fmtDuration, scoreClass, toast, pad2, sha256hex, gradePaper, PLACE_LIST, placeName, placeLabel } = window.App;
 
   /* رمز الدخول مخزّن كـ SHA-256 (الرمز الافتراضي Azert1234 — انظر README لتغييره) */
   const ACCESS_CODE_SHA256 = "841a489b150f64c3d9673eda5b7360dd28a59366ec31bc61fb0174cc3171897c";
@@ -25,6 +25,8 @@
     editForm: "A",
     charts: {},
     sessionTimer: null,
+    lastFullSync: 0,
+    finalizedSessions: {},
     filter: { search: "", form: "", sort: "date", place: "", session: "" }
   };
 
@@ -201,7 +203,10 @@ async function loadAll(notify) {
   try {
     A.settings = await Store.getSettings();
     A.bank = await Store.getBank();
+    /* تحميل كامل عند الإقلاع/بعد عمليات الحذف أو التثبيت: يضمن اختفاء
+       السجلات المحذوفة فورًا. التحديث الدوري وحده يستعمل الفهرسة التدريجية. */
     A.rows = await Store.listSubmissions();
+    A.lastFullSync = Date.now();
     A.launch = await Store.getLaunch();
     A.sessions = await Store.getSessions(A.rows);
     A.editForm = A.editForm || "A";
@@ -1660,8 +1665,10 @@ function cloudUrlFromInput() {
 function renderCloudState() {
   const input = $("#cloud-url");
   if (!input) return;
-  const stored = localStorage.getItem(CLOUD_LS_KEY) ||
-    ((window.MANHAJ_CONFIG && window.MANHAJ_CONFIG.firebaseUrl) || "");
+  const override = localStorage.getItem("manhaj_cloud_override_v1") === "1";
+  const stored = (override && localStorage.getItem(CLOUD_LS_KEY)) ||
+    ((window.MANHAJ_CONFIG && window.MANHAJ_CONFIG.firebaseUrl) || "") ||
+    localStorage.getItem(CLOUD_LS_KEY) || "";
   if (!input.value) input.value = stored;
   const active = Store.getMode() === "cloud";
   const badge = $("#cloud-badge");
@@ -1672,8 +1679,8 @@ function renderCloudState() {
   const note = $("#cloud-note");
   if (note) {
     note.textContent = active
-      ? "المزامنة مفعّلة: الجلسة وقائمة الانتظار والنتائج تظهر على كل الهواتف التي تفتح رابط المترشحين."
-      : "المزامنة غير مفعّلة: الجلسة محفوظة في هذا الهاتف فقط. الصق رابط Firebase أعلاه ثم احفظ.";
+      ? "المزامنة مفعّلة تلقائيًا: الجلسة وقائمة الانتظار والنتائج تظهر على كل الهواتف بدون نسخ أي رابط."
+      : "المزامنة غير مفعّلة: الجلسة محفوظة في هذا الهاتف فقط. تحقّق من الرابط أعلاه أو من الاتصال.";
   }
   const qr = $("#cloud-qr");
   if (qr) {
@@ -1685,8 +1692,7 @@ function renderCloudState() {
 
 function candidateLink() {
   const url = new URL("index.html", location.href);
-  const db = cloudUrlFromInput() || localStorage.getItem(CLOUD_LS_KEY) || "";
-  if (db) url.searchParams.set("db", db);
+  /* الرابط المدمج في config.js يعمل تلقائيًا؛ لا حاجة لإضافة ?db= */
   return url.href;
 }
 
@@ -1721,8 +1727,9 @@ function bindCloudSettings() {
       toast("رابط Firebase غير صالح — يجب أن يبدأ بـ https:// وبلا مسار", true);
       return;
     }
-    localStorage.setItem(CLOUD_LS_KEY, url);
-    toast("تم حفظ الرابط — إعادة تحميل…");
+    try { Store.setCloudUrl(url); }
+    catch (e) { toast("رابط Firebase غير صالح", true); return; }
+    toast("تم حفظ الرابط لهذا الجهاز — إعادة تحميل…");
     setTimeout(() => location.reload(), 700);
   });
 
@@ -1760,7 +1767,7 @@ function bindSession() {
   $("#btn-create-session").addEventListener("click", createSession);
   $("#btn-launch").addEventListener("click", launchNow);
   $("#btn-close-session").addEventListener("click", closeSession);
-  $("#btn-refresh-waiting").addEventListener("click", () => refreshSessionData(true));
+  $("#btn-refresh-waiting").addEventListener("click", () => refreshSessionData(true, true));
 }
 
 function stopSessionTimer() {
@@ -1773,10 +1780,108 @@ function startSessionTimer() {
   A.sessionTimer = setInterval(() => refreshSessionData(false), 4000);
 }
 
-async function refreshSessionData(notify) {
+function snapshotFromBank(formObj, graded) {
+  return (formObj.questions || []).map(q => {
+    const d = (graded.details || []).find(x => x.qid === q.id) || {};
+    if (q.type === "mcq") {
+      return {
+        qid: q.id, type: "mcq", topic: q.topic, points: q.points, text: q.text,
+        options: (q.options || []).map(o => ({ id: o.id, text: o.text })),
+        correct: q.correct, explain: q.explain || "",
+        given: d.given || null
+      };
+    }
+    return {
+      qid: q.id, type: "open", topic: q.topic, points: q.points, text: q.text,
+      modelAnswer: q.modelAnswer || "",
+      rubric: (q.rubric || []).map(r => ({ id: r.id, points: r.points, label: r.label })),
+      openText: d.openText || ""
+    };
+  });
+}
+
+/* تصحيح تلقائي لمن بدأ الاختبار ثم أغلق هاتفه/غادر قبل الإنهاء.
+   يعتمد على التقدّم الذي يحفظه المترشح في السحابة كل 12 ثانية. */
+async function finalizeAbandoned(sessionId) {
+  if (!sessionId) return 0;
+  if (A.finalizedSessions[sessionId]) return 0;
+  A.finalizedSessions[sessionId] = true;
+  let done = 0;
+  try {
+    const rows = await Store.listSubmissions();
+    const targets = rows.filter(r =>
+      r && r.session_id === sessionId && r.status === "waiting" &&
+      r.started_at && !r.finished_at && r.progress
+    );
+    for (const r of targets) {
+      try {
+        const p = JSON.parse(r.progress);
+        const formKey = r.form || p.form || "A";
+        const formObj = A.bank && A.bank.forms && A.bank.forms[formKey];
+        if (!formObj || !Array.isArray(formObj.questions) || !formObj.questions.length) continue;
+        const graded = gradePaper(formObj, p.answers || {});
+        const started = p.startedAt || r.started_at;
+        const finishedAt = new Date().toISOString();
+        const duration = started ? Math.max(0, Math.round((Date.now() - new Date(started).getTime()) / 1000)) : 0;
+        const rec = {
+          ...r,
+          id: r.id,
+          form: formKey,
+          started_at: started,
+          finished_at: finishedAt,
+          duration_sec: duration,
+          mcq_score: graded.mcq,
+          open_score: graded.open,
+          final_score: graded.total,
+          percent: graded.percent,
+          status: "auto",
+          graded_note: "تصحيح تلقائي بعد انتهاء الجلسة",
+          progress: null,
+          progress_at: null,
+          finalized_auto: true,
+          answers: JSON.stringify({
+            bankVersion: A.bank.version,
+            form: formKey,
+            sessionId,
+            deviceId: r.device_id,
+            details: graded.details,
+            snapshot: snapshotFromBank(formObj, graded),
+            settings: { mcqSeconds: A.settings.mcqSeconds, openSeconds: A.settings.openSeconds },
+            finalizedAuto: true
+          })
+        };
+        await Store.updateSubmission(r.id, rec);
+        done++;
+      } catch (e) {
+        console.warn("finalizeAbandoned row failed", r.id, e);
+      }
+    }
+  } catch (e) {
+    console.warn("finalizeAbandoned failed", e);
+  }
+  if (done) {
+    try {
+      A.rows = await Store.listSubmissions();
+      updatePanelSub();
+      fillResultFilters();
+      renderSession();
+      renderResults();
+      renderDash();
+      toast(`تمّ تصحيح ${done} نسخة تلقائيًا بعد إغلاق الجلسة`);
+    } catch (e) { /* ignore */ }
+  }
+  return done;
+}
+
+async function refreshSessionData(notify, forceFull) {
   if (!isAuthed()) { stopSessionTimer(); return; }
   try {
-    const [rows, launch] = await Promise.all([Store.listSubmissions(), Store.getLaunch()]);
+    const full = !!forceFull || !A.lastFullSync || (Date.now() - A.lastFullSync > 60000);
+    const [rows, launch] = await Promise.all([
+      full ? Store.listSubmissions() : Store.syncSubmissions(A.rows),
+      Store.getLaunch()
+    ]);
+    if (full) A.lastFullSync = Date.now();
     A.rows = rows;
     A.launch = launch;
     A.sessions = await Store.getSessions(rows);
@@ -1787,6 +1892,13 @@ async function refreshSessionData(notify) {
     const dashPanel = $("#tab-dash");
     if (dashPanel && !dashPanel.hidden) renderDash();
     if (notify) toast("حُدّثت قائمة الانتظار");
+
+    /* بعد إغلاق الجلسة: صحّح من غادر ولم يُنهِ نسخته (بعد مهلة كافية) */
+    if (launch && launch.status === "closed" &&
+        Date.now() - new Date(launch.closedAt || 0).getTime() > 12000 &&
+        !A.finalizedSessions[launch.id]) {
+      finalizeAbandoned(launch.id);
+    }
   } catch (e) {
     console.warn("refreshSessionData failed", e);
   }
@@ -2015,7 +2127,11 @@ async function closeSession() {
       for (const r of stale) { try { await Store.deleteSubmission(r.id); } catch (e) { /* ignore */ } }
     } catch (e) { /* ignore */ }
     await loadAll();
-    toast("أُغلق باب الترشح");
+    toast("أُغلق باب الترشح — تُجمع النتائج تلقائيًا");
+    /* ننتظر قليلًا حتى يُنهي المترشحون المتصلون نسخهم تلقائيًا، ثم نصحّح
+       من غادر قبل الإنهاء اعتمادًا على التقدّم المحفوظ في السحابة. */
+    setTimeout(() => { refreshSessionData(false, true); }, 9000);
+    setTimeout(() => { refreshSessionData(false, true); }, 20000);
   } catch (e) {
     toast("تعذّر إنهاء الجلسة", true);
   }

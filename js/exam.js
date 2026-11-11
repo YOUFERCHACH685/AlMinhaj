@@ -37,6 +37,8 @@ const S = {
   waitPoll: null,        /* مؤقّت استطلاع حالة الإطلاق */
   waitClock: null,       /* مؤقّت عرض مدة الانتظار */
   sessionPoll: null,     /* مؤقّت كشف إغلاق الجلسة أثناء الاختبار */
+  progressTimer: null,   /* حفظ دوري للتقدّم في السحابة */
+  lastProgressAt: 0,
   waitSince: 0,
   countPoll: null
 };
@@ -305,6 +307,49 @@ function clearProgress() {
   try { localStorage.removeItem(KEYS.progress); } catch (e) { /* ignore */ }
 }
 
+function captureOpenAnswer() {
+  const q = S.questions[S.idx];
+  if (q && q.type === "open") {
+    const ta = $("#q-open");
+    if (ta) S.answers[q.id] = { text: ta.value };
+  }
+}
+
+function stopProgressTimer() {
+  if (S.progressTimer) { clearInterval(S.progressTimer); S.progressTimer = null; }
+}
+
+/* نسخة مختصرة من التقدّم تُحفظ في السحابة: تسمح للمشرف بتصحيح من غادر
+   قبل انتهاء الوقت، وتُستعاد النتيجة عند إعادة فتح الصفحة. */
+async function saveProgressNow() {
+  if (!S.examStarted || S.finished || S.persisting || !S.waitingId) return;
+  if (Date.now() - S.lastProgressAt < 3000) return;
+  S.lastProgressAt = Date.now();
+  captureOpenAnswer();
+  try {
+    await Store.updateSubmission(S.waitingId, {
+      progress: JSON.stringify({
+        v: 1,
+        answers: S.answers,
+        idx: S.idx,
+        form: S.formKey,
+        startedAt: S.startedAt,
+        candidate: S.candidate,
+        updatedAt: new Date().toISOString()
+      }),
+      progress_at: new Date().toISOString()
+    });
+  } catch (e) {
+    /* الاتصال متعطّل: النسخة المحلية كافية للاستئناف على نفس الهاتف */
+  }
+}
+
+function startProgressTimer() {
+  stopProgressTimer();
+  saveProgressNow();
+  S.progressTimer = setInterval(saveProgressNow, 12000);
+}
+
 function readProgress() {
   try {
     const raw = localStorage.getItem(KEYS.progress);
@@ -322,6 +367,8 @@ async function finishExam() {
   S.persisting = true;
   stopTick();
   stopSessionPoll();
+  stopProgressTimer();
+  captureOpenAnswer();
 
   let graded;
   try {
@@ -334,7 +381,6 @@ async function finishExam() {
   }
 
   const duration = Math.round((Date.now() - new Date(S.startedAt).getTime()) / 1000);
-  const status = "auto";
 
   const snapshot = S.form.questions.map(q => {
     const d = graded.details.find(x => x.qid === q.id) || {};
@@ -370,7 +416,7 @@ async function finishExam() {
     open_score: graded.open,
     final_score: graded.total,
     percent: graded.percent,
-    status,
+    status: "auto",
     graded_note: "",
     answers: JSON.stringify({
       bankVersion: S.bank.version,
@@ -385,25 +431,32 @@ async function finishExam() {
 
   S.submission = rec;
 
-  showResult(rec, graded);
+  /* نعرض النتيجة أولًا (تجربة أفضل)، لكن أي خطأ في العرض لا يمنع الحفظ */
+  let shown = true;
+  try { showResult(rec, graded); }
+  catch (e) { shown = false; console.error("showResult failed", e); }
 
   let saved = false;
-  for (let attempt = 0; attempt < 2 && !saved; attempt++) {
+  for (let attempt = 0; attempt < 3 && !saved; attempt++) {
     try {
-      if (S.waitingId) await Store.updateSubmission(S.waitingId, rec);
-      else await Store.addSubmission(rec);
+      if (S.waitingId) {
+        await Store.updateSubmission(S.waitingId, { ...rec, progress: null, progress_at: null });
+      } else {
+        await Store.addSubmission(rec);
+      }
       saved = true;
     } catch (e) {
       console.warn("Enregistrement de la copie impossible", e);
-      if (S.waitingId) {
+      if (S.waitingId && attempt === 1) {
         try { await Store.addSubmission(rec); saved = true; }
         catch (e2) { console.warn("addSubmission fallback failed", e2); }
       }
     }
-    if (!saved && attempt === 0) await new Promise(r => setTimeout(r, 1200));
+    if (!saved) await new Promise(r => setTimeout(r, 900 * (attempt + 1)));
   }
 
   if (saved) {
+    rememberLocalRow(rec);
     S.finished = true;
     clearProgress();
     markDeviceFinished(S.launch ? S.launch.id : null);
@@ -412,6 +465,10 @@ async function finishExam() {
     toast("لم تُسجَّل النسخة بعد. لا تغلق الصفحة؛ أعد المحاولة.", true);
     setResultSaveNote(false);
     try { autosave(); } catch (e) { /* ignore */ }
+  }
+
+  if (!shown) {
+    try { showResult(rec, graded); } catch (e) { console.error("showResult retry failed", e); }
   }
   S.persisting = false;
 }
@@ -491,6 +548,12 @@ function renderReview(graded, pct) {
   box.innerHTML = "";
 
   /* bandeau imprimable */
+  const reviewMax = Number(
+    graded.maxPoints ||
+    (S.form && Array.isArray(S.form.questions)
+      ? S.form.questions.reduce((a, q) => a + Number(q.points || 0), 0)
+      : 0) || 100
+  );
   const head = document.createElement("div");
   head.className = "paper-meta";
   head.style.marginBottom = "18px";
@@ -499,7 +562,7 @@ function renderReview(graded, pct) {
     `<span>${esc((S.bank.forms && S.bank.forms[S.submission.form] && S.bank.forms[S.submission.form].label) || S.submission.form)}</span>` +
     `<span>${esc(placeLabel(S.submission.place_code, S.submission.place_name))}</span>` +
     `<span>${esc(fmtDate(S.submission.finished_at))}</span>` +
-    `<span>النقطة: <b>${Math.round(graded.total * 10) / 10}/${maxTotal}</b></span>`;
+    `<span>النقطة: <b>${Math.round(graded.total * 10) / 10}/${reviewMax}</b></span>`;
   box.appendChild(head);
 
   S.form.questions.forEach((q, i) => {
@@ -586,11 +649,55 @@ function localMirrorRows() {
   } catch (e) { return []; }
 }
 
+function rememberLocalRow(row) {
+  if (!row || !row.id) return;
+  try {
+    const all = JSON.parse(localStorage.getItem("manhaj_submissions_v1") || "[]") || [];
+    const i = all.findIndex(r => r && r.id === row.id);
+    if (i >= 0) all[i] = { ...all[i], ...row };
+    else all.push(row);
+    localStorage.setItem("manhaj_submissions_v1", JSON.stringify(all));
+  } catch (e) { /* ignore */ }
+}
+
 function findFinishedForSession(sessionId) {
   const mine = deviceId();
   return localMirrorRows().find(r =>
-    r && r.session_id === sessionId && r.device_id === mine && r.status !== "waiting"
+    r && r.session_id === sessionId && r.device_id === mine &&
+    (r.status !== "waiting" || r.finished_at)
   ) || null;
+}
+
+function latestLocalFinished() {
+  const mine = deviceId();
+  return localMirrorRows()
+    .filter(r => r && r.device_id === mine && r.finished_at &&
+                 r.status !== "waiting" && r.status !== "removed")
+    .sort((a, b) => new Date(b.finished_at || 0) - new Date(a.finished_at || 0))[0] || null;
+}
+
+/* البحث عن نسخة المترشح في السحابة (تعمل بعد إعادة فتح الصفحة أو تبديل الهاتف) */
+async function findMyResultCloud(sessionId) {
+  if (!sessionId) return null;
+  const dev = deviceId();
+  try {
+    const rows = await Store.listSummaries();
+    const own = rows
+      .filter(r => r && r.session_id === sessionId && r.finished_at &&
+                   r.status !== "waiting" && r.status !== "removed")
+      .sort((a, b) => new Date(b.finished_at || 0) - new Date(a.finished_at || 0));
+    let found = own.find(r => r.device_id === dev);
+    if (!found && S.candidate && (S.candidate.first || S.candidate.last)) {
+      found = own.find(r => sameName(r.candidate_first, r.candidate_last,
+        S.candidate.first, S.candidate.last));
+    }
+    if (!found) return null;
+    const full = await Store.getSubmission(found.id);
+    if (full) { rememberLocalRow(full); return full; }
+    return found;
+  } catch (e) {
+    return null;
+  }
 }
 
 function findWaitingForSession(sessionId) {
@@ -624,7 +731,7 @@ async function findDuplicate(sessionId, candidate) {
   } catch (e) { /* ignore */ }
 
   try {
-    const rows = await Store.listSubmissions();
+    const rows = await Store.listSummaries();
     const dup = rows.find(r =>
       r && r.session_id === sessionId && r.status !== "removed" &&
       (r.device_id === device ||
@@ -653,6 +760,23 @@ function stopWaitPoll() { if (S.waitPoll) { clearInterval(S.waitPoll); S.waitPol
 function stopWaitClock() { if (S.waitClock) { clearInterval(S.waitClock); S.waitClock = null; } }
 function stopSessionPoll() { if (S.sessionPoll) { clearInterval(S.sessionPoll); S.sessionPoll = null; } }
 
+async function checkSessionEnded() {
+  if (!S.examStarted || S.finished || S.persisting) return false;
+  let l = null;
+  try { l = await Store.getLaunch(); } catch (e) { return false; }
+  const ended = !l || !S.launch || l.id !== S.launch.id || l.status === "closed";
+  if (!ended) return false;
+  stopSessionPoll();
+  toast("انتهت الجلسة — سيتم عرض النتيجة", true);
+  await finishExam();
+  return true;
+}
+
+function startSessionPoll() {
+  stopSessionPoll();
+  S.sessionPoll = setInterval(checkSessionEnded, 5000);
+}
+
 function startWaitPoll() {
   stopWaitPoll();
   stopWaitClock();
@@ -670,8 +794,8 @@ async function refreshWaitingCount(force) {
   lastCountCheck = now;
   const el = $("#wait-count");
   try {
-    const rows = await Store.listSubmissions();
-    const n = rows.filter(r => r.status === "waiting" && r.session_id === (S.launch && S.launch.id)).length;
+    const rows = await Store.listSummaries();
+    const n = rows.filter(r => r.status === "waiting" && !r.finished_at && r.session_id === (S.launch && S.launch.id)).length;
     if (el) el.textContent = String(n);
   } catch (e) {
     if (el) el.textContent = "—";
@@ -819,19 +943,31 @@ async function joinWaiting(c, launch) {
   return rec;
 }
 
-function showRepeatBox(row) {
+function showRepeatBox(row, keepForm) {
   S.previousRow = row;
   const form = $("#start-form");
   const hint = $("#start-hint");
   const box = $("#repeat-box");
-  if (form) form.hidden = true;
-  if (hint) hint.hidden = true;
+  if (!keepForm) {
+    if (form) form.hidden = true;
+    if (hint) hint.hidden = true;
+  }
   if (!box) return;
   const pct = Math.round(Number(row.percent || row.final_score || 0) * 10) / 10;
   const st = row.status === "validated" ? "ثبّت المشرف نقطة التعبير" : "بانتظار تثبيت المشرف لنقطة التعبير";
   const placeTxt = placeLabel(row.place_code, row.place_name);
+  const when = S.launch ? "في هذه الجلسة" : "في آخر جلسة";
+  const head = box.querySelector("p b");
+  if (head) head.textContent = `لقد أديت الاختبار من هذا الجهاز ${when}.`;
+  let totalMax = 100;
+  try {
+    const d = typeof row.answers === "object" && row.answers ? row.answers : JSON.parse(row.answers || "{}");
+    const snap = Array.isArray(d.snapshot) ? d.snapshot : [];
+    const m = snap.reduce((a, q) => a + Number(q.points || 0), 0);
+    if (m > 0) totalMax = m;
+  } catch (e) { /* garder 100 */ }
   $("#repeat-meta").textContent =
-    `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}النقطة: ${Math.round(Number(row.final_score || 0) * 10) / 10}/100 (${pct}%) · ${st} · ${fmtDate(row.finished_at)}`;
+    `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}النقطة: ${Math.round(Number(row.final_score || 0) * 10) / 10}/${totalMax} (${pct}%) · ${st} · ${fmtDate(row.finished_at)}`;
   box.hidden = false;
 }
 
@@ -988,18 +1124,8 @@ async function startExam(candidate, opts) {
     renderQuestion();
     window.scrollTo({ top: 0 });
 
-    stopSessionPoll();
-    S.sessionPoll = setInterval(async () => {
-      if (S.finished) { stopSessionPoll(); return; }
-      try {
-        const l = await Store.getLaunch();
-        if (l && l.status === "closed" && (!S.launch || l.id === S.launch.id)) {
-          stopSessionPoll();
-          toast("أُغلقت الجلسة — سيتم عرض النتيجة", true);
-          await finishExam();
-        }
-      } catch (e) { /* ignore */ }
-    }, 5000);
+    startProgressTimer();
+    startSessionPoll();
   })().finally(() => { startingPromise = null; });
   return startingPromise;
 }
@@ -1119,9 +1245,8 @@ async function boot() {
     const warn = document.createElement("div");
     warn.className = "callout callout-warn";
     warn.style.marginBottom = "14px";
-    warn.innerHTML = "<b>تنبيه:</b> أنت لست على رابط المترشحين (لا مزامنة). " +
-      "استخدم الرابط الذي أرسله المشرف (يبدأ بـ <code>index.html?db=...</code>) " +
-      "لتعمل قاعة الانتظار والنتائج على هاتفك.";
+    warn.innerHTML = "<b>تنبيه:</b> المزامنة غير مفعّلة (نسخة قديمة مخزّنة أو تعذّر الاتصال). " +
+      "أعد تحميل الصفحة (Ctrl+F5) أو افتحها في نافذة خاصة.";
     const intro = $("#view-intro");
     if (intro) intro.insertBefore(warn, intro.firstChild);
   }
@@ -1131,10 +1256,25 @@ async function boot() {
   try { launchNow = await Store.getLaunch(); } catch (e) { launchNow = null; }
   S.launch = launchNow;
   let prev = null;
-  const progressNow = readProgress();
+  let progressNow = readProgress();
+  /* محاولة محفوظة من جلسة سابقة لا تصلح للاستئناف في الجلسة الحالية. */
+  if (progressNow && launchNow && (!progressNow.launch || progressNow.launch.id !== launchNow.id)) {
+    clearProgress();
+    progressNow = null;
+  }
   if (launchNow) {
     prev = findFinishedForSession(launchNow.id);
-    if (prev) showRepeatBox(prev);
+    if (!prev && launchNow.status === "closed") {
+      prev = await findMyResultCloud(launchNow.id);
+    }
+    if (prev) {
+      showRepeatBox(prev);
+      /* الجلسة انتهت والنتيجة محفوظة: لا معنى لعرض «محاولة غير مكتملة». */
+      if (launchNow.status === "closed") {
+        clearProgress();
+        try { localStorage.removeItem(KEYS.wait); } catch (e) { /* ignore */ }
+      }
+    }
     else if (!progressNow) {
       const waiting = findWaitingForSession(launchNow.id);
       if (waiting) {
@@ -1157,6 +1297,11 @@ async function boot() {
         } catch (e) { /* ignore */ }
       }
     }
+  } else {
+    /* لا توجد جلسة حالية: نعرض آخر نتيجة محفوظة على هذا الجهاز مع إبقاء
+       نموذج الدخول ظاهرًا استعدادًا للجلسة القادمة. */
+    const last = latestLocalFinished();
+    if (last) showRepeatBox(last, true);
   }
 
   $("#start-form").addEventListener("submit", ev => {
@@ -1167,11 +1312,19 @@ async function boot() {
   });
 
   const prevBtn = $("#btn-show-previous");
-  if (prevBtn) prevBtn.addEventListener("click", () => {
-    const l = S.launch;
-    const row = S.previousRow || (l ? findFinishedForSession(l.id) : null);
-    if (row) showPreviousResult(row);
-    else toast("لم يُعثر على النتيجة على هذا الجهاز. تواصل مع المشرف.", true);
+  if (prevBtn) prevBtn.addEventListener("click", async () => {
+    prevBtn.disabled = true;
+    try {
+      const l = S.launch;
+      const p = readProgress();
+      const sid = l ? l.id : (p && p.launch ? p.launch.id : null);
+      let row = S.previousRow || (sid ? findFinishedForSession(sid) : null);
+      if (!row && sid) row = await findMyResultCloud(sid);
+      if (row) showPreviousResult(row);
+      else toast("لم يُعثر على النتيجة. تأكّد من الاتصال ثم أعد المحاولة.", true);
+    } finally {
+      prevBtn.disabled = false;
+    }
   });
 
   const leaveBtn = $("#btn-leave-wait");
@@ -1260,29 +1413,27 @@ function resumeExam(p) {
   $("#ex-name").textContent = `${S.candidate.first} ${S.candidate.last}`;
   $("#ex-form").textContent = `${(S.bank.forms[S.formKey] && S.bank.forms[S.formKey].label) || S.formKey} · ${S.questions.length} أسئلة · ${formTotal(S.form)} نقطة`;
   renderQuestion();
-  stopSessionPoll();
-  S.sessionPoll = setInterval(async () => {
-    if (S.finished) { stopSessionPoll(); return; }
-    try {
-      const l = await Store.getLaunch();
-      if (l && l.status === "closed" && (!S.launch || l.id === S.launch.id)) {
-        stopSessionPoll();
-        toast("أُغلقت الجلسة — سيتم عرض النتيجة", true);
-        await finishExam();
-      }
-    } catch (e) { /* ignore */ }
-  }, 5000);
+  startProgressTimer();
+  startSessionPoll();
   toast("تمّ استئناف المحاولة");
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden || $("#view-exam").hidden || S.finished) return;
+  if (document.hidden) {
+    if (S.examStarted && !S.finished) { try { saveProgressNow(); } catch (e) { /* ignore */ } }
+    return;
+  }
+  if ($("#view-exam").hidden || S.finished) return;
   const q = S.questions[S.idx];
   if (!q || !S.qDeadline) return;
   const allotted = allottedSeconds(q);
   S.remaining = Math.max(0, Math.ceil((S.qDeadline - Date.now()) / 1000));
   renderTimer(allotted);
   if (S.remaining <= 0) { stopTick(); nextQuestion(true); }
+});
+
+window.addEventListener("pagehide", () => {
+  if (S.examStarted && !S.finished) { try { saveProgressNow(); } catch (e) { /* ignore */ } }
 });
 
 document.addEventListener("DOMContentLoaded", boot);
