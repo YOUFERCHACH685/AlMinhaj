@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>اختبار في المنهاج النبوي — فضاء المترشح</title>
+<meta name="description" content="اختبار كتابي في المنهاج النبوي: عشرة أسئلة اختيار من متعدد وسؤالا تعبير، بتوقيت محدّد وتصحيح فوري مع إمكانية استخراج النتيجة في ملف PDF.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-head noprint">
+  <div class="wrap">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">م.ن</span>
+      <div class="brand-text">
+        <h1>اختبار في المنهاج النبوي</h1>
+        <p class="s">تربية وتنظيمًا وزحفًا — فضاء المترشح</p>
+      </div>
+    </div>
+    <nav class="head-nav" aria-label="التنقل الرئيسي">
+      <a href="index.html" aria-current="page">الاختبار</a>
+      <a href="admin.html">فضاء المشرف</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" style="padding-top:26px">
+
+  <!-- ==================== عرض التقديم ==================== -->
+  <section id="view-intro" aria-labelledby="intro-title">
+    <div class="hero-grid">
+      <div class="card card-pad-lg">
+        <p class="eyebrow" id="intro-eyebrow">اختبار كتابي — 12 سؤالًا على 100</p>
+        <h2 id="intro-title" style="font-size:1.6rem">أهلًا بك في الاختبار</h2>
+        <p class="lead" id="intro-lead">
+          اختبار بسيط في مضامين كتاب «المنهاج النبوي: تربية وتنظيمًا وزحفًا» للإمام عبد السلام ياسين:
+          عشرة أسئلة اختيار من متعدد وسؤالا تعبير، يُصحَّح غالبها آليًّا وتُراجع أجوبة التعبير من طرف المشرف.
+        </p>
+
+        <form id="start-form" novalidate>
+          <div class="field-row">
+            <label class="field">
+              <span>الاسم العائلي <span class="req" aria-hidden="true">*</span></span>
+              <input type="text" id="f-last" name="last" autocomplete="family-name" required
+                     placeholder="مثال: العلوي" maxlength="40">
+            </label>
+            <label class="field">
+              <span>الاسم الشخصي <span class="req" aria-hidden="true">*</span></span>
+              <input type="text" id="f-first" name="first" autocomplete="given-name" required
+                     placeholder="مثال: محمد" maxlength="40">
+            </label>
+          </div>
+          <label class="field">
+            <span>المكان <span class="req" aria-hidden="true">*</span></span>
+            <select id="f-place" name="place" required>
+              <option value="">اختر المكان…</option>
+            </select>
+          </label>
+          <p id="form-err" class="err" role="alert"></p>
+          <button type="submit" class="btn btn-lg btn-block" id="btn-start">دخول الاختبار</button>
+        </form>
+
+        <!-- صندوق «سبق لك أداء الاختبار من هذا الجهاز في هذه الجلسة» -->
+        <div id="repeat-box" class="rule-box" hidden>
+          <p style="margin:0 0 6px"><b>لقد أديت الاختبار من هذا الجهاز في هذه الجلسة.</b></p>
+          <p class="small" style="margin:0 0 10px" id="repeat-meta">—</p>
+          <div class="btn-row">
+            <button type="button" class="btn btn-gold" id="btn-show-previous">عرض نتيجتي وتصحيحها</button>
+          </div>
+        </div>
+
+        <p class="hint" style="margin-top:14px" id="start-hint">
+          بعد ضغطك على «دخول الاختبار» تنتظر حتى يُطلق المشرف الاختبار، ثم يبدأ العدّ الزمني مع بقية المترشحين.
+          لا يمكن لنفس الاسم أو نفس الجهاز الترشح أكثر من مرة في الجلسة الواحدة.
+        </p>
+      </div>
+
+      <div class="stack">
+        <div class="card">
+          <h3 style="font-size:1.05rem;margin-bottom:12px">شروط الاختبار</h3>
+          <ul class="spec-list" id="intro-specs">
+            <li><span class="k">١</span><span>١٠ أسئلة اختيار من متعدد (٤ اختيارات)، لكل سؤال <b>٤٥ ثانية</b>.</span></li>
+            <li><span class="k">٢</span><span>سؤالا تعبير (من سطرين إلى أربعة أسطر)، لكل سؤال <b>٣ دقائق</b>.</span></li>
+            <li><span class="k">٣</span><span>ترتيب الأسئلة وترتيب الاختيارات <b>عشوائي لكل مترشح</b>.</span></li>
+            <li><span class="k">٤</span><span>المجموع على <b>١٠٠</b>، والتنقيط موزّع بحسب أهمّية المفهوم.</span></li>
+            <li><span class="k">٥</span><span>تظهر لك النتيجة مع تصحيح كل جواب فور الانتهاء، ويمكنك استخراجها <b>PDF</b>.</span></li>
+          </ul>
+        </div>
+
+        <div class="rule-box" id="rules-box">
+          <b>تنبيه:</b> عند انتهاء وقت السؤال يُسجَّل جوابك وينتقل الاختبار تلقائيًّا إلى السؤال الموالي.
+          تُحتسب أجوبة التعبير آليًّا احتياطيًّا، ثم يراجعها المشرف ويُثبّت نقطتها.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== عرض الانتظار (قاعة الانتظار) ==================== -->
+  <section id="view-wait" hidden aria-live="polite">
+    <div class="wait-shell">
+      <div class="card card-pad-lg wait-card">
+        <div class="wait-orb" aria-hidden="true"><span></span></div>
+        <p class="eyebrow center">قاعة الانتظار</p>
+        <h2 class="center" style="margin-bottom:6px">أهلًا بك، <span id="wait-name">—</span></h2>
+        <p class="muted center" style="margin-bottom:18px">
+          أنت الآن مسجَّل في قائمة الانتظار.<br>
+          يبدأ الاختبار تلقائيًا بمجرد ضغط المشرف على «إطلاق الاختبار».
+        </p>
+        <div class="wait-status" role="status">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span id="wait-status-text">في انتظار إطلاق الاختبار من المشرف…</span>
+        </div>
+        <div class="wait-meta">
+          <div><span class="k">الجلسة</span><span class="v" id="wait-session">—</span></div>
+          <div><span class="k">المكان</span><span class="v" id="wait-place">—</span></div>
+          <div><span class="k">مدة الانتظار</span><span class="v" id="wait-elapsed">00:00</span></div>
+          <div><span class="k">عدد المنتظرين الآن</span><span class="v" id="wait-count">—</span></div>
+        </div>
+        <p class="hint center" style="margin-top:16px">لا تغلق هذه الصفحة ولا تحدّثها؛ ستبدأ الأسئلة من تلقاء نفسها.</p>
+        <div class="btn-row" style="justify-content:center;margin-top:14px">
+          <button type="button" class="btn btn-ghost" id="btn-leave-wait">انسحاب من قائمة الانتظار</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== عرض الاختبار ==================== -->
+  <section id="view-exam" class="exam-shell" hidden aria-live="polite">
+    <div class="exam-top">
+      <div class="who">
+        <div><b id="ex-name">—</b></div>
+        <div class="small" id="ex-form">—</div>
+      </div>
+      <div class="timer" id="timer" role="timer" aria-label="الوقت المتبقي">
+        <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
+          <circle class="ring-bg" cx="22" cy="22" r="18" fill="none" stroke-width="4"></circle>
+          <circle class="ring-fg" id="ring" cx="22" cy="22" r="18" fill="none" stroke-width="4"
+                  stroke-dasharray="113.1" stroke-dashoffset="0"></circle>
+        </svg>
+        <span class="tnum" id="time-text">00:45</span>
+      </div>
+    </div>
+
+    <div class="progress-line" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progress">
+      <i style="width:0%"></i>
+    </div>
+
+    <article class="card q-card" id="q-card">
+      <div class="q-meta">
+        <span class="badge badge-gold" id="q-topic">—</span>
+        <span class="q-count" id="q-count">—</span>
+        <span class="badge badge-neutral" id="q-type">—</span>
+      </div>
+      <h2 class="q-text" id="q-text">—</h2>
+
+      <ul class="opts" id="q-opts" role="radiogroup" aria-labelledby="q-text"></ul>
+
+      <div id="q-open-wrap" hidden>
+        <label class="field" style="margin:0">
+          <span class="sr-only">جوابك</span>
+          <textarea id="q-open" rows="7" placeholder="اكتب جوابك هنا في حدود سطرين إلى أربعة أسطر…"></textarea>
+        </label>
+        <div class="write-meta">
+          <span id="q-words">0 كلمة</span>
+          <span>الحد الأدنى الموصى به: <b id="q-min">8</b> كلمات</span>
+        </div>
+      </div>
+
+      <div class="exam-foot">
+        <span class="small muted" id="q-points">—</span>
+        <button type="button" class="btn" id="btn-next">السؤال التالي</button>
+      </div>
+    </article>
+
+    <p class="small muted center" style="margin-top:14px">
+      لا يمكن الرجوع إلى سؤال بعد تجاوزه. إذا انقطع الاتصال، تُحفظ أجوبتك في هذا المتصفّح.
+    </p>
+  </section>
+
+  <!-- ==================== عرض النتيجة ==================== -->
+  <section id="view-result" hidden>
+    <div class="card card-pad-lg" id="result-card">
+      <div class="score-hero">
+        <div class="score-dial" id="dial" style="--pct:0">
+          <span class="val"><span id="res-score">0</span><small>/100</small></span>
+        </div>
+        <div style="min-width:0">
+          <p class="eyebrow" id="res-eyebrow">نتيجة الاختبار</p>
+          <h2 style="margin:0 0 6px" id="res-name">—</h2>
+          <p class="small muted" id="res-meta">—</p>
+          <div class="kpi-grid" style="margin-top:14px">
+            <div class="kpi"><div class="k">الاختيارات / 60</div><div class="v" id="res-mcq">0</div></div>
+            <div class="kpi"><div class="k">التعبير / 40</div><div class="v" id="res-open">0</div></div>
+            <div class="kpi"><div class="k">النسبة</div><div class="v" id="res-pct">0<small>%</small></div></div>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="rule-box" id="res-note" style="margin-bottom:16px"></div>
+
+      <div class="btn-row noprint" style="margin-bottom:8px">
+        <button type="button" class="btn btn-gold" id="btn-pdf">استخراج النتيجة PDF</button>
+        <a class="btn btn-ghost" href="index.html" id="btn-again">اختبار جديد</a>
+      </div>
+
+      <h3 style="margin-top:22px" class="noprint">تصحيح مفصّل</h3>
+      <div id="review"></div>
+    </div>
+  </section>
+
+  <section id="view-error" hidden>
+    <div class="card">
+      <h2>تعذّر تحميل الاختبار</h2>
+      <p class="muted" id="err-msg">—</p>
+      <a class="btn btn-ghost" href="index.html">إعادة المحاولة</a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-foot noprint">
+  <div class="wrap">
+    <p class="small">المرجع: عبد السلام ياسين، «المنهاج النبوي: تربية وتنظيمًا وزحفًا».</p>
+  </div>
+</footer>
+
+<script src="js/bank.js"></script>
+<script src="js/core.js"></script>
+<script src="js/exam.js"></script>
+</body>
+</html>

@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>فضاء المشرف — اختبار المنهاج النبوي</title>
+<meta name="robots" content="noindex, nofollow">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-head noprint">
+  <div class="wrap">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">م.ن</span>
+      <div class="brand-text">
+        <h1>فضاء المشرف</h1>
+        <p class="s">متابعة النتائج · التحليل · تحرير الأسئلة</p>
+      </div>
+    </div>
+    <nav class="head-nav" aria-label="التنقل الرئيسي">
+      <a href="index.html">الاختبار</a>
+      <a href="epreuves.html">نموذجا الاختبار</a>
+      <a href="corrige.html">التصحيح والتنقيط</a>
+      <a href="admin.html" aria-current="page">فضاء المشرف</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" style="padding-top:26px">
+
+  <!-- ====================== البوابة ====================== -->
+  <section id="view-login" hidden>
+    <div style="max-width:460px;margin:40px auto 0">
+      <div class="card card-pad-lg">
+        <p class="eyebrow">دخول محمي</p>
+        <h2 style="margin-bottom:6px">فضاء المشرف</h2>
+        <p class="small muted">أدخل رمز الدخول للمتابعة.</p>
+        <form id="login-form" novalidate>
+          <label class="field">
+            <span>رمز الدخول</span>
+            <input type="password" id="login-code" autocomplete="current-password"
+                   placeholder="••••••••" required>
+          </label>
+          <p class="err" id="login-err" role="alert"></p>
+          <button class="btn btn-block" type="submit">دخول</button>
+        </form>
+        <p class="hint" style="margin-top:14px">
+          رمز الدخول مخزّن بصيغة SHA-256 ولا يظهر في الشيفرة. يتيح 5 محاولات كل 10 دقائق.
+          يبقى هذا حاجزًا تنظيميًا على مستوى المتصفح؛ لحماية أقوى انشر الصفحة خلف مصادقة الاستضافة.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================== اللوحة ====================== -->
+  <section id="view-panel" hidden>
+    <div class="card-head" style="margin-bottom:10px">
+      <div>
+        <h2 style="margin:0">لوحة المتابعة</h2>
+        <p class="small muted" id="panel-sub" style="margin:4px 0 0">—</p>
+      </div>
+      <div class="btn-row">
+        <span class="badge" id="mode-badge">—</span>
+        <button class="btn btn-sm btn-ghost" type="button" id="btn-reload">تحديث</button>
+        <button class="btn btn-sm btn-ghost" type="button" id="btn-logout">خروج</button>
+      </div>
+    </div>
+
+    <div class="admin-nav" role="tablist" aria-label="أقسام فضاء المشرف">
+      <button role="tab" data-tab="session" aria-selected="true">الجلسة والإطلاق</button>
+      <button role="tab" data-tab="dash" aria-selected="false">لوحة الإحصاء</button>
+      <button role="tab" data-tab="results" aria-selected="false">النتائج</button>
+      <button role="tab" data-tab="questions" aria-selected="false">الأسئلة</button>
+      <button role="tab" data-tab="settings" aria-selected="false">الإعدادات</button>
+    </div>
+
+    <!-- ---------- الجلسة والإطلاق ---------- -->
+    <div id="tab-session" role="tabpanel">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head">
+            <h3 style="margin:0">جلسة الاختبار الحالية</h3>
+            <span class="badge badge-neutral" id="launch-badge">—</span>
+          </div>
+          <p class="small muted">
+            أنشئ مجموعة الاختبار، وانتظر اكتمال تسجيل المترشحين، ثم اضغط «إطلاق الاختبار»
+            فيبدأ الجميع دفعة واحدة. بعد «الإنهاء» لا يمكن لأي مترشح الدخول مجددًا (حتى باسم آخر) في هذه الجلسة.
+          </p>
+          <label class="field" style="margin-top:4px">
+            <span>اسم الجلسة (اختياري)</span>
+            <input type="text" id="launch-label" maxlength="80" placeholder="مثال: فوج الصباح — 10 نوفمبر 2026">
+          </label>
+          <dl class="launch-meta">
+            <div><dt>الحالة</dt><dd id="launch-state">—</dd></div>
+            <div><dt>أُنشئت</dt><dd id="launch-created">—</dd></div>
+            <div><dt>انطلقت</dt><dd id="launch-launched">—</dd></div>
+            <div><dt>أُغلقت</dt><dd id="launch-closed">—</dd></div>
+          </dl>
+          <div class="kpi-grid" style="margin-top:12px">
+            <div class="kpi"><div class="k">في الانتظار الآن</div><div class="v" id="wait-waiting-count">0</div></div>
+            <div class="kpi"><div class="k">أُنهوا الاختبار</div><div class="v" id="wait-done-count">0</div></div>
+          </div>
+          <div class="btn-row" style="margin-top:16px">
+            <button class="btn btn-gold" type="button" id="btn-create-session">إنشاء جلسة جديدة</button>
+            <button class="btn" type="button" id="btn-launch">إطلاق الاختبار الآن</button>
+            <button class="btn btn-danger" type="button" id="btn-close-session">إنهاء الاختبار</button>
+          </div>
+          <p class="hint" style="margin-top:10px">
+            التسلسل: «إنشاء» ← يسجّل المترشحون في قاعة الانتظار ← «إطلاق» ← يبدأ الجميع ← «إنهاء» ← يُقفل باب الترشح.
+            نسخة جديدة تتطلب «إنشاء جلسة» جديدة بعد الإغلاق.
+          </p>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3 style="margin:0">قائمة الانتظار الحية</h3>
+            <button class="btn btn-sm btn-ghost" type="button" id="btn-refresh-waiting">تحديث</button>
+          </div>
+          <p class="small muted">المترشحون المسجلون والمنتظرون انطلاق الاختبار، يُحدَّث تلقائيًا كل ثوانٍ.</p>
+          <div id="waiting-list" class="waiting-list"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-head">
+          <h3 style="margin:0">سجل الجلسات</h3>
+          <span class="small muted">تعديل اسم أي جلسة أو حذفها</span>
+        </div>
+        <p class="small muted">
+          كل الجلسات السابقة والحالية محفوظة هنا. «تعديل» يغيّر اسم الجلسة، و«حذف» يزيل سجل الجلسة
+          ومنتظريها مع الاحتفاظ بنسخ المترشحين المنجزة في تبويب النتائج.
+          لا يمكن حذف جلسة قيد التشغيل قبل إنهائها.
+        </p>
+        <div id="sessions-list" class="stack"></div>
+      </div>
+    </div>
+
+    <!-- ---------- لوحة الإحصاء ---------- -->
+    <div id="tab-dash" role="tabpanel" hidden>
+      <div class="card dash-toolbar noprint" style="margin-bottom:18px">
+        <div class="card-head" style="margin-bottom:0">
+          <div>
+            <h3 style="margin:0">لوحة الإحصاء</h3>
+            <p class="small muted" style="margin:4px 0 0" id="dash-scope-label">كل الجلسات</p>
+          </div>
+          <div class="btn-row">
+            <select id="dash-session-filter" aria-label="تصفية حسب الجلسة">
+              <option value="">كل الجلسات</option>
+            </select>
+            <button class="btn btn-sm btn-gold" type="button" id="btn-dash-pdf">تصدير PDF</button>
+            <button class="btn btn-sm btn-soft" type="button" id="btn-dash-xlsx">تصدير Excel</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="dash-print-head" class="dash-print-head">
+        <h2 id="dash-print-title" style="margin:0">لوحة الإحصاء</h2>
+        <p class="small muted" id="dash-print-sub" style="margin:6px 0 0">—</p>
+      </div>
+
+      <div class="kpi-grid" id="dash-kpis" style="margin-bottom:18px"></div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>ملخّص الجلسات</h3>
+          <span class="small muted">عدد المترشحين والمعدّل لكل جلسة</span>
+        </div>
+        <div id="dash-sessions"></div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-head">
+          <h3>التوزيع حسب المجموعات والمحطات</h3>
+          <span class="small muted" id="dash-groups-scope">كل الجلسات</span>
+        </div>
+        <div id="dash-groups"></div>
+      </div>
+
+      <div class="grid-2" style="margin-top:18px">
+        <div class="card">
+          <div class="card-head"><h3>توزيع النقط</h3><span class="small muted">عدد المترشحين بحسب المجال</span></div>
+          <div class="chart-box"><canvas id="chart-hist"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>تحليل أجوبة الاختيارات</h3><span class="small muted">نسبة الإجابات الصحيحة لكل سؤال</span></div>
+          <div class="chart-box"><canvas id="chart-questions"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-head">
+          <h3>تحليل حسب المفهوم</h3>
+          <span class="small muted">معدّل الإتقان لكل محور من محاور المنهاج</span>
+        </div>
+        <div class="chart-box tall"><canvas id="chart-topics"></canvas></div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-head"><h3>قراءة تحليلية</h3></div>
+        <div id="dash-insights" class="stack small"></div>
+      </div>
+    </div>
+
+    <!-- ---------- النتائج ---------- -->
+    <div id="tab-results" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <h3 style="margin:0">لائحة المترشحين</h3>
+          <div class="btn-row">
+            <button class="btn btn-sm btn-gold" type="button" id="btn-xlsx">تصدير Excel</button>
+            <button class="btn btn-sm btn-ghost" type="button" id="btn-csv">تصدير CSV</button>
+          </div>
+        </div>
+        <div class="toolbar">
+          <input type="search" id="f-search" placeholder="بحث بالاسم أو المكان…" aria-label="بحث بالاسم أو المكان">
+          <select id="f-session-filter" aria-label="تصفية حسب الجلسة">
+            <option value="">كل الجلسات</option>
+          </select>
+          <select id="f-place-filter" aria-label="تصفية حسب المكان">
+            <option value="">كل الأماكن</option>
+          </select>
+          <select id="f-form" aria-label="تصفية حسب النموذج">
+            <option value="">كل النماذج</option>
+            <option value="A">النموذج أ</option>
+            <option value="B">النموذج ب</option>
+          </select>
+          <select id="f-sort" aria-label="ترتيب">
+            <option value="date">الأحدث أولًا</option>
+            <option value="score-desc">النقطة (تنازلي)</option>
+            <option value="score-asc">النقطة (تصاعدي)</option>
+            <option value="name">الاسم</option>
+          </select>
+        </div>
+        <div id="results-table"></div>
+      </div>
+    </div>
+
+    <!-- ---------- الأسئلة ---------- -->
+    <div id="tab-questions" role="tabpanel" hidden>
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-head">
+          <h3 style="margin:0">تحرير بنك الأسئلة</h3>
+          <span class="small muted" id="bank-meta">—</span>
+        </div>
+        <div class="toolbar">
+          <select id="bank-form" aria-label="اختيار النموذج">
+            <option value="A">النموذج أ</option>
+            <option value="B">النموذج ب</option>
+          </select>
+          <button class="btn btn-sm btn-gold" type="button" id="btn-save-bank">حفظ التعديلات</button>
+          <button class="btn btn-sm btn-ghost" type="button" id="btn-reset-bank">استرجاع النسخة الأصلية</button>
+          <button class="btn btn-sm btn-ghost" type="button" id="btn-add-mcq" data-add="mcq">+ اختيار من متعدد</button>
+          <button class="btn btn-sm btn-ghost" type="button" id="btn-add-open" data-add="open">+ تعبير</button>
+          <span style="flex:0 0 1px;height:22px;background:var(--line)" class="noprint" aria-hidden="true"></span>
+          <select id="word-form" aria-label="النموذج المطلوب لملف Word">
+            <option value="AB">النموذجان معًا</option>
+            <option value="A">النموذج أ فقط</option>
+            <option value="B">النموذج ب فقط</option>
+          </select>
+          <button class="btn btn-sm btn-gold" type="button" id="btn-word" title="تصدير بنك الأسئلة + المفتاح والتصحيح إلى ملف Word قابل للطبع">تصدير Word ⬇</button>
+        </div>
+        <div class="rule-box small">
+          مجموع النقط: <b id="bank-total">—</b> / 100.
+          كل تعديل يُطبَّق على الاختبارات اللاحقة فقط؛ النسخ المسجَّلة تحتفظ بنسختها.
+        </div>
+      </div>
+      <div id="q-list" class="stack"></div>
+    </div>
+
+    <!-- ---------- الإعدادات ---------- -->
+    <div id="tab-settings" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head"><h3>إعدادات الاختبار</h3></div>
+        <form id="settings-form">
+          <div class="field-row">
+            <label class="field">
+              <span>مدة سؤال الاختيار من متعدد (ثانية)</span>
+              <input type="number" id="s-mcq" min="10" max="600" step="5">
+            </label>
+            <label class="field">
+              <span>مدة سؤال التعبير (ثانية)</span>
+              <input type="number" id="s-open" min="30" max="1800" step="30">
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span>توزيع النماذج</span>
+              <select id="s-mode">
+                <option value="random">عشوائي بين أ وب</option>
+                <option value="A">النموذج أ دائمًا</option>
+                <option value="B">النموذج ب دائمًا</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>عتبة النجاح (من 100)</span>
+              <input type="number" id="s-pass" min="0" max="100" step="5">
+            </label>
+          </div>
+          <div class="field-row">
+            <label class="field">
+              <span>الحد الأدنى لكلمات التعبير (تنبيه)</span>
+              <input type="number" id="s-minwords" min="0" max="60" step="1">
+            </label>
+            <label class="field">
+              <span>اسم المؤسسة / الجهة</span>
+              <input type="text" id="s-institution" maxlength="80">
+            </label>
+          </div>
+          <button class="btn" type="submit">حفظ الإعدادات</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- نافذة التفاصيل -->
+<div id="modal-root"></div>
+
+<footer class="site-foot noprint">
+  <div class="wrap">
+    <p class="small">فضاء المشرف — اختبار في المنهاج النبوي.</p>
+  </div>
+</footer>
+
+<script src="js/bank.js"></script>
+<script src="js/core.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="js/word.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>

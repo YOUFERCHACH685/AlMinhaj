@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>نموذجا الاختبار — اختبار المنهاج النبوي</title>
+<meta name="description" content="نموذجا الاختبار الكتابي في المنهاج النبوي: النموذج أ والنموذج ب، كل واحد من 10 أسئلة اختيار من متعدد وسؤالَي تعبير على 100 نقطة، جاهزان للطبع.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="print-page">
+
+<header class="site-head noprint">
+  <div class="wrap">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">م.ن</span>
+      <div class="brand-text">
+        <h1>نموذجا الاختبار</h1>
+        <p class="s">الورقة الورقية — النموذج أ والنموذج ب</p>
+      </div>
+    </div>
+    <nav class="head-nav" aria-label="التنقل الرئيسي">
+      <a href="index.html">الاختبار</a>
+      <a href="epreuves.html" aria-current="page">نموذجا الاختبار</a>
+      <a href="corrige.html">التصحيح والتنقيط</a>
+      <a href="admin.html">فضاء المشرف</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap" style="padding-top:24px">
+
+  <div class="card noprint" style="margin-bottom:24px">
+    <div class="card-head" style="margin-bottom:8px">
+      <h2 style="margin:0;font-size:1.2rem">ورقتان متكافئتان</h2>
+      <div class="btn-row">
+        <button class="btn btn-gold btn-sm" type="button" id="btn-print">طبع / حفظ PDF</button>
+        <button class="btn btn-sm btn-gold" type="button" id="btn-word">تصدير Word (النموذجان + المفتاح)</button>
+        <button class="btn btn-sm btn-ghost" type="button" id="btn-toggle">إظهار/إخفاء الاختيارات</button>
+      </div>
+    </div>
+    <p class="small muted mb0" style="margin:0">
+      كل نموذج: <b>10</b> أسئلة اختيار من متعدد (<b>60</b> نقطة) + <b>سؤالا تعبير</b> (<b>40</b> نقطة) = <b>100</b> نقطة.
+      المضمون مأخوذ من بنك الأسئلة الحالي، فإن حرّرتَه من فضاء المشرف تغيّرت هذه الورقة تبعًا لذلك.
+      <b>التنقيط موزّع بحسب أهمّية المفهوم</b> لا بحسب صعوبة السؤال.
+    </p>
+  </div>
+
+  <div id="papers" class="stack" style="gap:32px"></div>
+
+</main>
+
+<footer class="site-foot noprint">
+  <div class="wrap">
+    <p class="small">المرجع: عبد السلام ياسين، «المنهاج النبوي: تربية وتنظيمًا وزحفًا».</p>
+  </div>
+</footer>
+
+<script src="js/bank.js"></script>
+<script src="js/core.js"></script>
+<script src="js/word.js"></script>
+<script src="js/gate.js"></script>
+<script>
+(function () {
+  "use strict";
+  const { Store, esc } = window.App;
+  let bank = null;
+  let settings = null;
+  let showOptions = true;
+
+/* وصف زمني عربي مقروء: 45 ثانية / دقيقتان / 3 دقائق */
+function arabicDuration(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  if (s < 60) return `${s} ثانية`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  const mTxt = m === 1 ? "دقيقة" : m === 2 ? "دقيقتان" : `${m} دقائق`;
+  return r ? `${mTxt} و${r} ثانية` : mTxt;
+}
+
+function paperHtml(formKey) {
+  const form = bank.forms[formKey];
+  const mcq = form.questions.filter(q => q.type === "mcq");
+  const open = form.questions.filter(q => q.type === "open");
+  const letters = ["أ", "ب", "ج", "د"];
+  const mcqMax = mcq.reduce((s, q) => s + q.points, 0);
+  const openMax = open.reduce((s, q) => s + q.points, 0);
+  const totalPts = mcqMax + openMax;
+  const mcqSec = Number((settings && settings.mcqSeconds) || bank.meta.mcqSeconds || 45);
+  const openSec = Number((settings && settings.openSeconds) || bank.meta.openSeconds || 180);
+  const totalSec = mcq.length * mcqSec + open.length * openSec;
+
+  const mcqHtml = mcq.map((q, i) => `
+    <div class="q">
+      <div class="qt">${i + 1}. ${esc(q.text)} <span class="small muted">(${q.points} ن)</span></div>
+      ${showOptions ? `<ol type="a">${q.options.map((o, oi) =>
+        `<li>${esc(o.text)}</li>`).join("")}</ol>` : ""}
+    </div>`).join("");
+
+  const openHtml = open.map((q, i) => `
+    <div class="q">
+      <div class="qt">${mcq.length + i + 1}. ${esc(q.text)} <span class="small muted">(${q.points} ن)</span></div>
+      <div class="lines">${Array.from({ length: 6 }, () => "<span></span>").join("")}</div>
+    </div>`).join("");
+
+  return `
+  <article class="paper">
+    <div class="paper-head">
+      <h1>${esc(bank.meta.title)}</h1>
+      <div class="sub">${esc(bank.meta.reference)}</div>
+      <div class="sub"><b>${esc(form.label)}</b> — المدة: ${arabicDuration(totalSec)}</div>
+    </div>
+    <div class="paper-meta">
+      <span>الاسم العائلي: ......................................</span>
+      <span>الاسم الشخصي: ......................................</span>
+      <span>النقطة: ...... / ${totalPts}</span>
+    </div>
+    <h2 class="qsec">القسم الأول: أسئلة الاختيار من متعدد — ${mcq.length} أسئلة (${mcqMax} نقطة)</h2>
+    <p class="small muted" style="margin:0 0 10px">اختر جوابًا واحدًا فقط لكل سؤال. لكل سؤال ${arabicDuration(mcqSec)}.</p>
+    ${mcqHtml}
+    <h2 class="qsec">القسم الثاني: أسئلة التعبير — ${open.length} سؤالان (${openMax} نقطة)</h2>
+    <p class="small muted" style="margin:0 0 10px">حَرِّر الجواب في حدود سطرين إلى أربعة أسطر. لكل سؤال ${arabicDuration(openSec)}.</p>
+    ${openHtml}
+    <p class="small muted" style="margin-top:20px;text-align:center">
+      ${esc(bank.meta.title)} — ${esc(form.label)} · المجموع ${totalPts} نقطة
+    </p>
+  </article>`;
+}
+
+function render() {
+  const host = document.getElementById("papers");
+  host.innerHTML = paperHtml("A") + paperHtml("B");
+}
+
+async function boot() {
+  try {
+    const [b, s] = await Promise.all([Store.getBank(), Store.getSettings()]);
+    bank = b;
+    settings = s;
+  } catch (e) {
+    bank = await Store.getBank();
+  }
+  render();
+  document.getElementById("btn-print").addEventListener("click", () => window.print());
+  const btnWord = document.getElementById("btn-word");
+  if (btnWord && window.WordExport) {
+    btnWord.addEventListener("click", async () => {
+      const settings = await Store.getSettings();
+      window.WordExport.downloadQuestionsDocx(bank, settings, ["A", "B"]);
+    });
+  }
+  document.getElementById("btn-toggle").addEventListener("click", () => {
+    showOptions = !showOptions;
+    render();
+  });
+}
+
+document.addEventListener("DOMContentLoaded", boot);
+})();
+</script>
+</body>
+</html>
