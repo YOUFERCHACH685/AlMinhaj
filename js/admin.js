@@ -1675,6 +1675,12 @@ function renderCloudState() {
       ? "المزامنة مفعّلة: الجلسة وقائمة الانتظار والنتائج تظهر على كل الهواتف التي تفتح رابط المترشحين."
       : "المزامنة غير مفعّلة: الجلسة محفوظة في هذا الهاتف فقط. الصق رابط Firebase أعلاه ثم احفظ.";
   }
+  const qr = $("#cloud-qr");
+  if (qr) {
+    const link = candidateLink();
+    qr.src = "https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=" + encodeURIComponent(link);
+    qr.alt = "رمز QR لرابط المترشحين";
+  }
 }
 
 function candidateLink() {
