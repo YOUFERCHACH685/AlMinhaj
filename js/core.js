@@ -22,6 +22,7 @@ function esc(v) {
 
 function normalizeAr(s) {
   return String(s || "")
+    .toLowerCase()
     .replace(/[\u064B-\u0652\u0670\u0640]/g, "")
     .replace(/[أإآٱ]/g, "ا")
     .replace(/ى/g, "ي")
@@ -85,6 +86,12 @@ function shuffle(arr) {
 function uid() {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
   return "id-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 9);
+}
+
+/* عنوان قاعدة Firebase صالح: https://host أو http://localhost:port للاختبار المحلي */
+function isCloudUrl(u) {
+  const s = String(u || "").trim();
+  return /^https:\/\/[^/]+$/i.test(s) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(s);
 }
 
 function pad2(n) { return String(n).padStart(2, "0"); }
@@ -210,7 +217,46 @@ function toast(msg, bad) {
 const Store = (() => {
   const LS_SUB = "manhaj_submissions_v1";
   const LS_CFG = "manhaj_config_v1";
+  const LS_CLOUD = "manhaj_cloud_url_v1";
   let mode = null;
+
+  /* ---------------------------------------------------------- cloud mode
+     Firebase Realtime Database REST : يعمل من أي هاتف دون خادم.
+     نقرأ العنوان من config.js أو من ?db=... (رابط المترشحين) أو من الإعدادات. */
+  const CFG = window.MANHAJ_CONFIG || {};
+  const CLOUD_ROOT = String(CFG.firebaseRoot || "manhaj").replace(/^\/+|\/+$/g, "") || "manhaj";
+  let CLOUD_BASE = String(CFG.firebaseUrl || "").trim().replace(/\/+$/, "");
+  try {
+    const param = new URLSearchParams(location.search).get("db");
+    if (param && isCloudUrl(param)) {
+      CLOUD_BASE = param.trim().replace(/\/+$/, "");
+      localStorage.setItem(LS_CLOUD, CLOUD_BASE);
+    } else {
+      const saved = localStorage.getItem(LS_CLOUD);
+      if (saved && isCloudUrl(saved)) CLOUD_BASE = saved.trim().replace(/\/+$/, "");
+    }
+  } catch (e) { /* ignore */ }
+  const cloudOn = () => !!CLOUD_BASE;
+
+  function cloudUrl(path) {
+    return `${CLOUD_BASE}/${CLOUD_ROOT}/${String(path).replace(/^\/+/, "")}.json`;
+  }
+  async function cloudRequest(path, options) {
+    const opts = options || {};
+    const res = await fetch(cloudUrl(path), {
+      method: opts.method || "GET",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: opts.body
+    });
+    if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  }
+  const cloudGet = path => cloudRequest(path);
+  const cloudPut = (path, value) => cloudRequest(path, { method: "PUT", body: JSON.stringify(value) });
+  const cloudPatch = (path, value) => cloudRequest(path, { method: "PATCH", body: JSON.stringify(value) });
+  const cloudDelete = path => cloudRequest(path, { method: "DELETE" });
 
   function lsRead(key, fallback) {
     try {
@@ -232,6 +278,7 @@ const Store = (() => {
 
   async function probe() {
     if (mode) return mode;
+    if (cloudOn()) { mode = "cloud"; return mode; }
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 6000);
@@ -256,7 +303,7 @@ const Store = (() => {
     const rows = [];
     let page = 1;
     let total = Infinity;
-    while (rows.length < total && page <= 25) {
+    while (rows.length < total && page <= 200) {
       const res = await fetch(`tables/${table}?page=${page}&limit=100`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -281,13 +328,24 @@ const Store = (() => {
 
   async function listSubmissions() {
     const m = await probe();
+    if (m === "cloud") {
+      const obj = await cloudGet("submissions");
+      const rows = obj && typeof obj === "object"
+        ? Object.keys(obj).map(k => {
+            const r = obj[k] || {};
+            return { ...r, id: r.id || k };
+          })
+        : [];
+      return normalizePercents(rows.sort((a, b) =>
+        new Date(b.finished_at || b.created_at || 0) - new Date(a.finished_at || a.created_at || 0)));
+    }
     if (m === "api") {
       try {
         const rows = await apiAll("submissions");
         return normalizePercents(rows.sort((a, b) => new Date(b.finished_at || b.created_at || 0) - new Date(a.finished_at || a.created_at || 0)));
       } catch (e) {
-        console.warn("Lecture API impossible, bascule locale", e);
-        mode = "local";
+        console.warn("Lecture API impossible", e);
+        throw e;
       }
     }
     return normalizePercents(lsRead(LS_SUB, []).sort((a, b) => new Date(b.finished_at || 0) - new Date(a.finished_at || 0)));
@@ -295,6 +353,11 @@ const Store = (() => {
 
   async function addSubmission(rec) {
     const m = await probe();
+    if (m === "cloud") {
+      const row = { ...rec, id: rec.id || uid(), created_at: rec.created_at || Date.now() };
+      await cloudPut(`submissions/${encodeURIComponent(row.id)}`, row);
+      return row;
+    }
     if (m === "api") {
       try {
         const res = await fetch("tables/submissions", {
@@ -310,8 +373,8 @@ const Store = (() => {
         lsWrite(LS_SUB, all);
         return saved;
       } catch (e) {
-        console.warn("Écriture API impossible, bascule locale", e);
-        mode = "local";
+        console.warn("Écriture API impossible", e);
+        throw e;
       }
     }
     const local = { ...rec, id: rec.id || uid(), created_at: Date.now() };
@@ -323,6 +386,10 @@ const Store = (() => {
 
   async function updateSubmission(id, patch) {
     const m = await probe();
+    if (m === "cloud") {
+      await cloudPatch(`submissions/${encodeURIComponent(id)}`, patch);
+      return { ...patch, id };
+    }
     if (m === "api") {
       try {
         const res = await fetch(`tables/submissions/${encodeURIComponent(id)}`, {
@@ -338,8 +405,8 @@ const Store = (() => {
         }
         if (res.status !== 404) throw new Error(`HTTP ${res.status}`);
       } catch (e) {
-        console.warn("Mise à jour API impossible, bascule locale", e);
-        mode = "local";
+        console.warn("Mise à jour API impossible", e);
+        throw e;
       }
     }
     const all = lsRead(LS_SUB, []);
@@ -352,6 +419,10 @@ const Store = (() => {
 
   async function deleteSubmission(id) {
     const m = await probe();
+    if (m === "cloud") {
+      await cloudDelete(`submissions/${encodeURIComponent(id)}`);
+      return true;
+    }
     if (m === "api") {
       try {
         const res = await fetch(`tables/submissions/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -362,8 +433,8 @@ const Store = (() => {
         }
         throw new Error(`HTTP ${res.status}`);
       } catch (e) {
-        console.warn("Suppression API impossible, bascule locale", e);
-        mode = "local";
+        console.warn("Suppression API impossible", e);
+        throw e;
       }
     }
     lsWrite(LS_SUB, lsRead(LS_SUB, []).filter(r => r.id !== id));
@@ -373,18 +444,26 @@ const Store = (() => {
   /* -------- config (banque de questions, réglages) -------- */
   async function allConfig() {
     const m = await probe();
+    if (m === "cloud") {
+      const obj = await cloudGet("config");
+      if (!obj || typeof obj !== "object") return [];
+      return Object.keys(obj).map(key => ({ key, value: obj[key], id: key }));
+    }
     if (m === "api") {
       try {
         return await apiAll("config");
       } catch (e) {
-        console.warn("Config API illisible, bascule locale", e);
-        mode = "local";
+        console.warn("Config API illisible", e);
+        throw e;
       }
     }
     return lsRead(LS_CFG, []);
   }
 
   async function getConfig(key) {
+    if ((await probe()) === "cloud") {
+      return cloudGet(`config/${encodeURIComponent(key)}`);
+    }
     const rows = await allConfig();
     const found = rows.find(r => r.key === key);
     return found ? found.value : null;
@@ -392,6 +471,10 @@ const Store = (() => {
 
   async function saveConfig(key, value) {
     const m = await probe();
+    if (m === "cloud") {
+      await cloudPut(`config/${encodeURIComponent(key)}`, value);
+      return { key, value };
+    }
     if (m === "api") {
       try {
         const rows = await apiAll("config");
@@ -411,8 +494,8 @@ const Store = (() => {
         lsWrite(LS_CFG, localRows);
         return saved;
       } catch (e) {
-        console.warn("Écriture config impossible, bascule locale", e);
-        mode = "local";
+        console.warn("Écriture config impossible", e);
+        throw e;
       }
     }
     const rows = lsRead(LS_CFG, []).filter(r => r.key !== key);
@@ -516,7 +599,7 @@ const Store = (() => {
       const raw = await getConfig("sessions");
       const parsed = typeof raw === "string" ? JSON.parse(raw || "[]") : raw;
       if (Array.isArray(parsed)) {
-        list = parsed.filter(s => s && s.id).map(plainSession);
+        list = parsed.filter(s => s && s.id).map(s => ({ ...plainSession(s), deleted: !!s.deleted, deletedAt: s.deletedAt || null }));
       }
     } catch (e) { list = []; }
 
@@ -573,7 +656,10 @@ const Store = (() => {
   }
 
   async function deleteSession(id) {
-    const list = (await getSessions()).filter(s => s.id !== id);
+    const list = await getSessions();
+    const i = list.findIndex(s => s.id === id);
+    if (i === -1) return true;
+    list[i] = { ...list[i], deleted: true, deletedAt: new Date().toISOString() };
     await saveConfig("sessions", JSON.stringify(list));
     const launch = await getLaunch();
     if (launch && launch.id === id) await saveConfig("launch", "");
@@ -592,7 +678,7 @@ function autoScoreOpen(q, text) {
   const norm = normalizeAr(text);
   const words = wordCount(text);
   const rubric = (q.rubric || []).map(r => {
-    const kws = (r.keywords || []).map(normalizeAr).filter(Boolean);
+    const kws = Array.from(new Set((r.keywords || []).map(normalizeAr).filter(Boolean)));
     const hits = kws.filter(k => k && norm.includes(k)).length;
     let earned = 0;
     if (hits >= 2) earned = r.points;
@@ -637,7 +723,10 @@ function gradePaper(formObj, answers) {
     }
   });
   const total = mcq + open;
-  return { details, mcq, open, total, percent: Math.round((total / 100) * 1000) / 10 };
+  const mcqMax = formObj.questions.filter(q => q.type === "mcq").reduce((a, q) => a + Number(q.points || 0), 0);
+  const openMax = formObj.questions.filter(q => q.type === "open").reduce((a, q) => a + Number(q.points || 0), 0);
+  const maxPoints = mcqMax + openMax || 1;
+  return { details, mcq, open, total, mcqMax, openMax, maxPoints, percent: Math.round((total / maxPoints) * 1000) / 10 };
 }
 
 if (typeof window !== "undefined") {

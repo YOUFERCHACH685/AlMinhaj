@@ -80,6 +80,11 @@
 
     <!-- ---------- الجلسة والإطلاق ---------- -->
     <div id="tab-session" role="tabpanel">
+      <div class="callout callout-warn" id="local-mode-note" hidden>
+        <b>تنبيه مهم:</b> الجلسة محفوظة في هذا الهاتف فقط، لذا لن يراها المترشحون على هواتف أخرى.
+        اربط الموقع بقاعدة Firebase من تبويب «الإعدادات» ← «المزامنة بين الأجهزة»، ثم انسخ «رابط المترشحين».
+        <a href="cloud-setup.html">دليل الإعداد خطوة بخطوة</a>.
+      </div>
       <div class="grid-2">
         <div class="card">
           <div class="card-head">
@@ -313,6 +318,29 @@
           <button class="btn" type="submit">حفظ الإعدادات</button>
         </form>
       </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-head">
+          <h3 style="margin:0">المزامنة بين الأجهزة</h3>
+          <span class="badge badge-neutral" id="cloud-badge">—</span>
+        </div>
+        <p class="small muted">
+          ليعمل الاختبار على هواتف مختلفة، اربط الموقع بقاعدة
+          <b>Firebase Realtime Database</b> مجانية. أنشئ القاعدة مرة واحدة، ثم الصق رابطها هنا.
+          <a href="cloud-setup.html" target="_blank" rel="noopener">دليل الإعداد خطوة بخطوة</a>.
+        </p>
+        <label class="field">
+          <span>رابط قاعدة Firebase</span>
+          <input type="url" id="cloud-url" dir="ltr" inputmode="url"
+                 placeholder="https://xxxx-default-rtdb.firebaseio.com">
+        </label>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn" type="button" id="btn-cloud-save">حفظ الرابط وإعادة التحميل</button>
+          <button class="btn btn-ghost" type="button" id="btn-cloud-test">اختبار الاتصال</button>
+          <button class="btn btn-ghost" type="button" id="btn-cloud-copy">نسخ رابط المترشحين</button>
+        </div>
+        <p class="hint" id="cloud-note" style="margin-top:10px"></p>
+      </div>
     </div>
   </section>
 
@@ -328,6 +356,7 @@
 </footer>
 
 <script src="js/bank.js"></script>
+<script src="js/config.js"></script>
 <script src="js/core.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>

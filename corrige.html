@@ -101,6 +101,7 @@
 </footer>
 
 <script src="js/bank.js"></script>
+<script src="js/config.js"></script>
 <script src="js/core.js"></script>
 <script src="js/gate.js"></script>
 <script>
@@ -171,7 +172,7 @@ function corrigeHtml(formKey) {
     </div>
     <div class="paper-meta">
       <span>عدد الأسئلة: <b>${form.questions.length}</b></span>
-      <span>المجموع: <b>100</b></span>
+      <span>المجموع: <b>${form.questions.reduce((a,q)=>a+Number(q.points||0),0)}</b></span>
       <span>المرجع: ${esc(bank.meta.reference)}</span>
     </div>
     ${blocks}

@@ -28,9 +28,11 @@
     filter: { search: "", form: "", sort: "date", place: "", session: "" }
   };
 
-  const activeRows = () => A.rows.filter(r => r.status !== "waiting");
-  const waitingRows = () => A.rows.filter(r => r.status === "waiting" && !r.started_at
-    && (!A.launch || !A.launch.id || r.session_id === A.launch.id));
+  const activeRows = () => A.rows.filter(r => r.status !== "waiting" && r.status !== "removed");
+  const waitingRows = () => {
+    if (!A.launch || !A.launch.id) return [];
+    return A.rows.filter(r => r.status === "waiting" && !r.started_at && r.session_id === A.launch.id);
+  };
 
 /* ------------------------------------------------------------------- auth */
 function isAuthed() {
@@ -54,13 +56,19 @@ function lockInfo() {
 }
 function registerFailure() {
   try {
-    const l = lockState() || { count: 0 };
+    const now = Date.now();
+    const windowMs = LOCK_MINUTES * 60 * 1000;
+    let l = lockState() || {};
+    /* نافذة المحاولات: تُصفَّر بعد 10 دقائق من أول محاولة فاشلة */
+    if (!l.first || now - l.first > windowMs) l = { count: 0, first: now };
     const count = (l.count || 0) + 1;
     if (count >= MAX_TRIES) {
-      localStorage.setItem(LOCK_KEY, JSON.stringify({ count: 0, until: Date.now() + LOCK_MINUTES * 60 * 1000 }));
+      localStorage.setItem(LOCK_KEY, JSON.stringify({
+        count: 0, first: now, until: now + windowMs
+      }));
       return { lockedNow: true, left: 0 };
     }
-    localStorage.setItem(LOCK_KEY, JSON.stringify({ count }));
+    localStorage.setItem(LOCK_KEY, JSON.stringify({ count, first: l.first, last: now }));
     return { lockedNow: false, left: MAX_TRIES - count };
   } catch (e) {
     return { lockedNow: false, left: MAX_TRIES };
@@ -98,7 +106,22 @@ function regrade(row) {
     if (d) openScore += Number(d.earned || 0);
   });
 
-  return { data, snap, mcq, open, mcqScore, openScore, total: mcqScore + openScore };
+  const mcqMax = mcq.reduce((s, q) => s + Number(q.points || 0), 0);
+  const openMax = open.reduce((s, q) => s + Number(q.points || 0), 0);
+
+  return {
+    data, snap, mcq, open, mcqScore, openScore,
+    mcqMax, openMax, totalMax: mcqMax + openMax,
+    total: mcqScore + openScore
+  };
+}
+
+/* مجموع نقط نموذج من البنك (اختيارات / تعبير / المجموع) */
+function formMax(formObj) {
+  const qs = (formObj && formObj.questions) || [];
+  const mcq = qs.filter(q => q.type === "mcq").reduce((s, q) => s + Number(q.points || 0), 0);
+  const open = qs.filter(q => q.type === "open").reduce((s, q) => s + Number(q.points || 0), 0);
+  return { mcq, open, total: mcq + open };
 }
 
 /* ============================================================== init / vues */
@@ -110,6 +133,7 @@ function boot() {
   bindDash();
   bindBank();
   bindSettings();
+  bindCloudSettings();
   bindWord();
 
   if (isAuthed()) {
@@ -184,11 +208,18 @@ async function loadAll(notify) {
 
     const mode = Store.getMode();
     const badge = $("#mode-badge");
-    badge.textContent = mode === "api" ? "تخزين: طاولات المشروع" : "تخزين: هذا المتصفّح فقط";
-    badge.className = "badge " + (mode === "api" ? "badge-ok" : "badge-warn");
-    badge.title = mode === "api"
-      ? "النسخ محفوظة مركزيًّا وتظهر لكل مشرف"
-      : "تعذّر الوصول لطاولات المشروع؛ النسخ محفوظة في هذا المتصفّح فقط";
+    const cloud = mode === "cloud";
+    const api = mode === "api";
+    badge.textContent = cloud ? "تخزين: سحابي مشترك" : api ? "تخزين: خادم محلي" : "تخزين: هذا المتصفّح فقط";
+    badge.className = "badge " + (cloud || api ? "badge-ok" : "badge-warn");
+    badge.title = cloud
+      ? "البيانات مشتركة عبر Firebase وتظهر لكل الأجهزة"
+      : api
+        ? "البيانات محفوظة على خادم tables المحلي وتظهر لكل الأجهزة المتصلة به"
+        : "البيانات محفوظة في هذا المتصفّح فقط؛ المترشحون على هواتف أخرى لن يروها";
+    const localNote = $("#local-mode-note");
+    if (localNote) localNote.hidden = cloud || api;
+    renderCloudState();
 
     updatePanelSub();
     renderSession();
@@ -228,7 +259,9 @@ function kpi(label, value) {
 }
 
 function passMarkValue() {
-  return Number((A.settings && A.settings.passMark) || 50);
+  const raw = A.settings ? A.settings.passMark : undefined;
+  const v = Number(raw);
+  return raw != null && Number.isFinite(v) ? v : 50;
 }
 
 function dashStats(rows) {
@@ -266,7 +299,7 @@ function knownSessionIds() {
 /* يجمع الجلسات المعروفة + الجلسات المحذوفة (نسخ باقية) + النسخ بدون جلسة */
 function dashSessionInfo() {
   const known = knownSessionIds();
-  const list = (A.sessions || []).slice();
+  const list = (A.sessions || []).filter(s => !s.deleted && !s.deletedAt).slice();
   if (A.launch && !list.some(s => s.id === A.launch.id)) list.unshift(A.launch);
   const out = list.map(s => {
     const current = !!(A.launch && A.launch.id === s.id);
@@ -593,7 +626,7 @@ function exportDashCsv() {
   const pm = passMarkValue();
 
   const lines = [];
-  const push = arr => lines.push(arr.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
+  const push = arr => lines.push(arr.map(v => csvCell(v)).join(","));
 
   push(["ملخّص الجلسات — " + dashScopeLabel()]);
   push(["الجلسة", "الحالة", "منجزون", "منتظرون", "قيد الإنجاز", "المعدّل /100", "الناجحون", "نسبة النجاح %"]);
@@ -734,6 +767,7 @@ function renderHistogram(scores) {
 
   const ctx = $("#chart-hist");
   if (!ctx) return;
+  if (typeof Chart === "undefined") return;
   destroyChart("hist");
   A.charts.hist = new Chart(ctx, {
     type: "bar",
@@ -789,6 +823,7 @@ function renderQuestionChart(rows = activeRows()) {
   const stats = collectMcqStats(rows);
   const ctx = $("#chart-questions");
   if (!ctx) return;
+  if (typeof Chart === "undefined") return;
   destroyChart("questions");
 
   if (!stats.length) {
@@ -868,6 +903,7 @@ function renderTopicChart(rows = activeRows()) {
   const stats = collectTopicStats(rows);
   const ctx = $("#chart-topics");
   if (!ctx) return;
+  if (typeof Chart === "undefined") return;
   destroyChart("topics");
   if (!stats.length) return;
 
@@ -1045,7 +1081,7 @@ function renderResults() {
   }
 
   const trs = rows.map((r, i) => {
-    const pct = Number(r.percent || r.final_score || 0);
+    const pct = r.percent != null ? Number(r.percent) : Number(r.final_score || 0);
     const formLabel = (A.bank.forms[r.form] || {}).label || r.form;
     const st = r.status === "validated"
       ? `<span class="badge badge-ok">مثبّتة</span>`
@@ -1055,8 +1091,8 @@ function renderResults() {
       <td><b>${esc(r.candidate_first)} ${esc(r.candidate_last)}</b></td>
       <td class="nowrap">${esc(rowPlaceText(r))}</td>
       <td class="num">${esc(formLabel)}</td>
-      <td class="num">${r.mcq_score ?? "—"}</td>
-      <td class="num">${r.open_score ?? "—"}</td>
+      <td class="num">${r.mcq_score == null ? "—" : esc(Number(r.mcq_score))}</td>
+      <td class="num">${r.open_score == null ? "—" : esc(Number(r.open_score))}</td>
       <td class="num"><span class="score-pill ${scoreClass(pct)}">${Math.round(pct * 10) / 10}</span></td>
       <td class="num nowrap">${esc(fmtDate(r.finished_at))}</td>
       <td class="num">${st}</td>
@@ -1086,6 +1122,7 @@ async function removeRow(id) {
   try {
     await Store.deleteSubmission(id);
     A.rows = A.rows.filter(r => r.id !== id);
+    updatePanelSub(); renderSession(); fillResultFilters();
     renderResults(); renderDash();
     toast("حُذفت النسخة");
   } catch (e) {
@@ -1098,6 +1135,11 @@ function openDetail(id) {
   const row = A.rows.find(r => r.id === id);
   if (!row) return;
   const g = regrade(row);
+  const fm = formMax((A.bank.forms && A.bank.forms[row.form]) || {});
+  g.mcqMax = fm.mcq || g.mcqMax || 0;
+  g.openMax = fm.open || g.openMax || 0;
+  g.totalMax = fm.total || g.totalMax || 0;
+  if (!g.totalMax) g.totalMax = (g.mcqMax || 0) + (g.openMax || 0) || 100;
   const data = g.data;
   const snap = g.snap;
 
@@ -1145,9 +1187,9 @@ function openDetail(id) {
       </div>
 
       <div class="kpi-grid" style="margin-bottom:14px">
-        <div class="kpi"><div class="k">المجموع</div><div class="v">${row.final_score}${"<small>/100</small>"}</div></div>
-        <div class="kpi"><div class="k">الاختيارات</div><div class="v">${row.mcq_score}<small>/60</small></div></div>
-        <div class="kpi"><div class="k">التعبير</div><div class="v">${row.open_score}<small>/40</small></div></div>
+        <div class="kpi"><div class="k">المجموع</div><div class="v">${Number(row.final_score) || 0}<small>/${g.totalMax}</small></div></div>
+        <div class="kpi"><div class="k">الاختيارات</div><div class="v">${Number(row.mcq_score) || 0}<small>/${g.mcqMax}</small></div></div>
+        <div class="kpi"><div class="k">التعبير</div><div class="v">${Number(row.open_score) || 0}<small>/${g.openMax}</small></div></div>
       </div>
 
       <form id="grade-form">
@@ -1156,8 +1198,8 @@ function openDetail(id) {
         </div>
         <div class="field-row">
           <label class="field">
-            <span>نقطة التعبير (من 40)</span>
-            <input type="number" id="g-open" min="0" max="40" step="1" value="${Number(row.open_score || 0)}">
+            <span>نقطة التعبير (من ${g.openMax})</span>
+            <input type="number" id="g-open" min="0" max="${g.openMax}" step="1" value="${Number(row.open_score || 0)}">
           </label>
           <label class="field">
             <span>ملاحظة المشرف</span>
@@ -1177,16 +1219,24 @@ function openDetail(id) {
 
   $("#m-close").addEventListener("click", closeModal);
   $("#backdrop").addEventListener("click", ev => { if (ev.target.id === "backdrop") closeModal(); });
-  $("#m-print").addEventListener("click", () => window.print());
+  $("#m-print").addEventListener("click", () => {
+    document.body.classList.add("printing-detail");
+    const cleanup = () => { document.body.classList.remove("printing-detail"); window.removeEventListener("afterprint", cleanup); };
+    window.addEventListener("afterprint", cleanup);
+    setTimeout(cleanup, 15000);
+    window.print();
+  });
   $("#grade-form").addEventListener("submit", async ev => {
     ev.preventDefault();
-    const openScore = Math.max(0, Math.min(40, Number($("#g-open").value || 0)));
+    const openMax = g.openMax || 40;
+    const openScore = Math.max(0, Math.min(openMax, Number($("#g-open").value || 0)));
     const note = $("#g-note").value.trim();
     const mcq = Number(row.mcq_score || 0);
+    const totalMax = g.totalMax || (mcq + openMax) || 100;
     const patch = {
       open_score: openScore,
       final_score: Math.round((mcq + openScore) * 10) / 10,
-      percent: Math.round((mcq + openScore) * 10) / 10,
+      percent: Math.round(((mcq + openScore) / totalMax) * 1000) / 10,
       status: "validated",
       graded_note: note
     };
@@ -1231,6 +1281,13 @@ function exportRows() {
   }));
 }
 
+function csvCell(v) {
+  let s = String(v == null ? "" : v);
+  /* منع حقن صيغ Excel: تحييد الخلايا التي تبدأ بـ = + - @ أو بTab/CR */
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
 function download(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -1252,7 +1309,7 @@ function exportCsv() {
   if (!rows.length) { toast("لا توجد بيانات للتصدير", true); return; }
   const headers = Object.keys(rows[0]);
   const csv = [headers.join(",")].concat(
-    rows.map(r => headers.map(h => `"${String(r[h]).replace(/"/g, '""')}"`).join(","))
+    rows.map(r => headers.map(h => csvCell(r[h])).join(","))
   ).join("\r\n");
   /* BOM : garantit l'affichage correct de l'arabe dans Excel */
   download(new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" }), `نتائج-الاختبار-${stamp()}.csv`);
@@ -1338,6 +1395,7 @@ function exportXlsx() {
 /* ==================================================================== QUESTIONS */
 function bindBank() {
   $("#bank-form").addEventListener("change", ev => {
+    try { readEditors(); } catch (e) { /* ignore */ }
     A.editForm = ev.target.value;
     renderQuestions();
   });
@@ -1425,7 +1483,7 @@ function buildEditorHtml(q, qi) {
         <textarea data-f="modelAnswer" rows="4">${esc(q.modelAnswer || "")}</textarea></label>
       <label class="field"><span>سلّم التنقيط (سطر لكل عنصر: النقطة|الوصف|كلمات مفتاحية مفصولة بفاصلة)</span>
         <textarea data-f="rubric" rows="5" dir="ltr" style="font-family:ui-monospace,monospace;font-size:.85rem">${
-          (q.rubric || []).map(r => `${r.points}|${r.label}|${(r.keywords || []).join(",")}`).join("\n")
+          esc((q.rubric || []).map(r => `${Number(r.points) || 0}|${r.label || ""}|${(r.keywords || []).join(",")}`).join("\n"))
         }</textarea></label>`;
   }
 
@@ -1591,6 +1649,106 @@ function bindSettings() {
   });
 }
 
+/* ============================================================ CLOUD SYNC */
+const CLOUD_LS_KEY = "manhaj_cloud_url_v1";
+
+function cloudUrlFromInput() {
+  const el = $("#cloud-url");
+  return (el ? el.value : "").trim().replace(/\/+$/, "");
+}
+
+function renderCloudState() {
+  const input = $("#cloud-url");
+  if (!input) return;
+  const stored = localStorage.getItem(CLOUD_LS_KEY) ||
+    ((window.MANHAJ_CONFIG && window.MANHAJ_CONFIG.firebaseUrl) || "");
+  if (!input.value) input.value = stored;
+  const active = Store.getMode() === "cloud";
+  const badge = $("#cloud-badge");
+  if (badge) {
+    badge.textContent = active ? "مفعّل" : "غير مفعّل";
+    badge.className = "badge " + (active ? "badge-ok" : "badge-warn");
+  }
+  const note = $("#cloud-note");
+  if (note) {
+    note.textContent = active
+      ? "المزامنة مفعّلة: الجلسة وقائمة الانتظار والنتائج تظهر على كل الهواتف التي تفتح رابط المترشحين."
+      : "المزامنة غير مفعّلة: الجلسة محفوظة في هذا الهاتف فقط. الصق رابط Firebase أعلاه ثم احفظ.";
+  }
+}
+
+function candidateLink() {
+  const url = new URL("index.html", location.href);
+  const db = cloudUrlFromInput() || localStorage.getItem(CLOUD_LS_KEY) || "";
+  if (db) url.searchParams.set("db", db);
+  return url.href;
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (e) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      return true;
+    } catch (e2) {
+      return false;
+    }
+  }
+}
+
+function bindCloudSettings() {
+  const save = $("#btn-cloud-save");
+  if (!save) return;
+
+  save.addEventListener("click", () => {
+    const url = cloudUrlFromInput();
+    if (!/^https:\/\/[^/]+$/i.test(url)) {
+      toast("رابط Firebase غير صالح — يجب أن يبدأ بـ https:// وبلا مسار", true);
+      return;
+    }
+    localStorage.setItem(CLOUD_LS_KEY, url);
+    toast("تم حفظ الرابط — إعادة تحميل…");
+    setTimeout(() => location.reload(), 700);
+  });
+
+  $("#btn-cloud-test").addEventListener("click", async () => {
+    const url = cloudUrlFromInput();
+    if (!/^https:\/\/[^/]+$/i.test(url)) {
+      toast("أدخل رابط Firebase صالحًا أولًا", true);
+      return;
+    }
+    const btn = $("#btn-cloud-test");
+    btn.disabled = true;
+    try {
+      const res = await fetch(`${url}/.json?shallow=true`, { cache: "no-store" });
+      if (res.status === 401 || res.status === 403) throw new Error("accès refusé");
+      if (!res.ok && res.status !== 404) throw new Error(`HTTP ${res.status}`);
+      toast("الاتصال بقاعدة Firebase ناجح");
+    } catch (e) {
+      toast("تعذّر الاتصال: تحقّق من الرابط ومن قواعد القراءة/الكتابة", true);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $("#btn-cloud-copy").addEventListener("click", async () => {
+    const link = candidateLink();
+    if (await copyText(link)) toast("نُسخ رابط المترشحين — وزّعه على الهواتف");
+    else prompt("انسخ رابط المترشحين:", link);
+  });
+
+  renderCloudState();
+}
+
 /* ============================================================ SESSION / LANCEMENT */
 function bindSession() {
   $("#btn-create-session").addEventListener("click", createSession);
@@ -1699,6 +1857,7 @@ function renderSession() {
   host.innerHTML = rowsHtml;
   host.querySelectorAll("[data-del-waiting]").forEach(b => {
     b.addEventListener("click", async () => {
+      if (!confirm("إزالة هذا المترشح من قائمة الانتظار؟")) return;
       try {
         await Store.deleteSubmission(b.dataset.delWaiting);
         await refreshSessionData(false);
@@ -1803,6 +1962,11 @@ async function removeSessionRecord(id) {
 async function createSession() {
   const label = $("#launch-label").value.trim();
   try {
+    const cur = await Store.getLaunch();
+    if (cur && cur.status !== "closed") {
+      toast("هناك جلسة قيد التشغيل — أنهِها أو أغلقها أولًا", true);
+      return;
+    }
     await Store.saveLaunch({ status: "waiting", label, createdAt: new Date().toISOString() });
     await loadAll();
     toast("أُنشئت جلسة جديدة — في انتظار الإطلاق");
@@ -1811,7 +1975,7 @@ async function createSession() {
   }
 }
 async function launchNow() {
-  const launch = await Store.getLaunch();
+  let launch = await Store.getLaunch();
   if (!launch || launch.status !== "waiting") {
     toast("لا توجد جلسة بانتظار الإطلاق", true);
     return;
@@ -1819,6 +1983,8 @@ async function launchNow() {
   const waiting = waitingRows().length;
   if (!confirm(`إطلاق الاختبار الآن؟${waiting ? `\n${waiting} مترشحًا في قاعة الانتظار سيبدأون فورًا.` : ""}`)) return;
   try {
+    launch = await Store.getLaunch();
+    if (!launch || launch.status !== "waiting") { toast("تغيرت حالة الجلسة", true); return; }
     await Store.saveLaunch({ ...launch, status: "launched", launchedAt: new Date().toISOString() });
     await loadAll();
     toast("أُطلق الاختبار — انطلق الجميع!");
@@ -1828,7 +1994,7 @@ async function launchNow() {
 }
 
 async function closeSession() {
-  const launch = await Store.getLaunch();
+  let launch = await Store.getLaunch();
   if (!launch || launch.status === "closed") return;
   const msg = launch.status === "waiting"
     ? "إلغاء الجلسة دون إطلاق؟ يُقفل الباب ولا يدخل أحد في هذه الجلسة."
@@ -1861,6 +2027,7 @@ function bindWord() {
       return;
     }
     try {
+      readEditors();
       const filename = WordExport.downloadQuestionsDocx(A.bank, A.settings, keys);
       toast(`تمّ تصدير Word — ${filename}`);
     } catch (e) {

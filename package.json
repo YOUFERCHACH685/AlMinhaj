@@ -1,0 +1,9 @@
+{
+  "name": "alminhaj-exam",
+  "version": "1.0.0",
+  "private": true,
+  "description": "اختبار المنهاج النبوي — موقع ساكن مع مزامنة سحابية اختيارية",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

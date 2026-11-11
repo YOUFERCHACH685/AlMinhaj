@@ -26,6 +26,10 @@ const S = {
   remaining: 0,
   tick: null,
   finished: false,
+  persisting: false,
+  examStarted: false,
+  resumeRemaining: null,
+  previousRow: null,
   candidate: { first: "", last: "" },
   submission: null,
   launch: null,          /* حالة جلسة الإطلاق الحالية */
@@ -49,7 +53,11 @@ function pickForm(bank, settings) {
 
 function buildPaper(bank, settings) {
   const formKey = pickForm(bank, settings);
-  const src = JSON.parse(JSON.stringify(bank.forms[formKey]));
+  const srcRaw = bank && bank.forms && bank.forms[formKey];
+  if (!srcRaw || !Array.isArray(srcRaw.questions) || !srcRaw.questions.length) {
+    throw new Error("لا توجد أسئلة في النموذج " + formKey + ".");
+  }
+  const src = JSON.parse(JSON.stringify(srcRaw));
   /* ordre des questions aléatoire */
   const questions = shuffle(src.questions).map(q => {
     if (q.type === "mcq") {
@@ -127,22 +135,28 @@ function refreshSettingsSoon() {
     .finally(() => { settingsRefresh = null; });
 }
 
-function startQuestionTimer() {
+function startQuestionTimer(savedRemaining) {
   stopTick();
   const q = S.questions[S.idx];
-  S.remaining = allottedSeconds(q);
-  const total = S.remaining;
-  renderTimer(total);
+  if (!q) return;
+  const allotted = allottedSeconds(q);
+  let secs = Number.isFinite(savedRemaining) ? savedRemaining : allotted;
+  secs = Math.max(0, Math.min(allotted, secs));
+  S.qDeadline = Date.now() + secs * 1000;
+  S.remaining = secs;
+  renderTimer(allotted);
 
   S.tick = setInterval(() => {
-    S.remaining = Math.max(0, S.remaining - 1);
+    const total = allottedSeconds(S.questions[S.idx]);
+    S.remaining = Math.max(0, Math.ceil((S.qDeadline - Date.now()) / 1000));
     renderTimer(total);
     if (S.remaining <= 0) {
       stopTick();
       toast("انتهى وقت هذا السؤال");
+      autosave();
       nextQuestion(true);
     }
-  }, 1000);
+  }, 250);
 }
 
 function renderTimer(total) {
@@ -217,7 +231,9 @@ function renderQuestion() {
     nextBtn.textContent = S.idx === totalQ - 1 ? "إنهاء الاختبار" : "السؤال التالي";
   }
 
-  startQuestionTimer();
+  const pending = S.resumeRemaining;
+  S.resumeRemaining = null;
+  startQuestionTimer(pending == null ? undefined : pending);
   refreshSettingsSoon();
   autosave();
 }
@@ -274,6 +290,7 @@ function autosave() {
       answers: S.answers,
       idx: S.idx,
       remaining: S.remaining,
+      deadline: S.qDeadline,
       startedAt: S.startedAt,
       candidate: S.candidate,
       launch: S.launch ? { id: S.launch.id, label: S.launch.label, status: S.launch.status } : null,
@@ -300,12 +317,20 @@ function readProgress() {
 
 /* ------------------------------------------------------------------ clôture */
 async function finishExam() {
-  if (S.finished) return;
-  S.finished = true;
+  if (S.finished || S.persisting) return;
+  S.persisting = true;
   stopTick();
-  clearProgress();
 
-  const graded = gradePaper(S.form, S.answers);
+  let graded;
+  try {
+    graded = gradePaper(S.form, S.answers);
+  } catch (e) {
+    console.error(e);
+    S.persisting = false;
+    toast("تعذّر تصحيح النسخة. أعد المحاولة.", true);
+    return;
+  }
+
   const duration = Math.round((Date.now() - new Date(S.startedAt).getTime()) / 1000);
   const status = "auto";
 
@@ -358,21 +383,47 @@ async function finishExam() {
 
   S.submission = rec;
 
-  try {
-    if (S.waitingId) {
-      /* حلّ سجلّ الانتظار إلى نسخة مكتملة */
-      await Store.updateSubmission(S.waitingId, rec);
-    } else {
-      const saved = await Store.addSubmission(rec);
-      if (saved && saved.id) S.submission.id = saved.id;
+  showResult(rec, graded);
+
+  let saved = false;
+  for (let attempt = 0; attempt < 2 && !saved; attempt++) {
+    try {
+      if (S.waitingId) await Store.updateSubmission(S.waitingId, rec);
+      else await Store.addSubmission(rec);
+      saved = true;
+    } catch (e) {
+      console.warn("Enregistrement de la copie impossible", e);
+      if (S.waitingId) {
+        try { await Store.addSubmission(rec); saved = true; }
+        catch (e2) { console.warn("addSubmission fallback failed", e2); }
+      }
     }
-    markDeviceFinished(S.launch ? S.launch.id : null);
-  } catch (e) {
-    console.warn("Enregistrement de la copie impossible", e);
-    toast("تم إظهار النتيجة، لكن تعذّر تسجيلها لدى المشرف", true);
+    if (!saved && attempt === 0) await new Promise(r => setTimeout(r, 1200));
   }
 
-  showResult(rec, graded);
+  if (saved) {
+    S.finished = true;
+    clearProgress();
+    markDeviceFinished(S.launch ? S.launch.id : null);
+    setResultSaveNote(true);
+  } else {
+    toast("لم تُسجَّل النسخة بعد. لا تغلق الصفحة؛ أعد المحاولة.", true);
+    setResultSaveNote(false);
+    try { autosave(); } catch (e) { /* ignore */ }
+  }
+  S.persisting = false;
+}
+
+function setResultSaveNote(ok) {
+  const el = $("#res-save");
+  if (!el) return;
+  if (ok) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.className = "callout callout-warn";
+  el.innerHTML = "<b>تنبيه:</b> لم تُسجَّل نسختك لدى المشرف بعد. تحقّق من الاتصال ثم " +
+    "<button type=\"button\" class=\"btn btn-sm\" id=\"btn-retry-save\">أعد المحاولة</button>";
+  const b = $("#btn-retry-save");
+  if (b) b.addEventListener("click", () => { S.finished = false; finishExam(); });
 }
 
 /* ------------------------------------------------------------------ résultat */
@@ -384,12 +435,17 @@ function showResult(rec, graded) {
   const view = $("#view-result");
   view.hidden = false;
 
+  const maxTotal = Number(graded.maxPoints || (S.form ? formTotal(S.form) : 100) || 100);
+  const maxMcq = Number(graded.mcqMax != null ? graded.mcqMax : (S.form ? S.form.questions.filter(q => q.type === "mcq").reduce((a, q) => a + Number(q.points || 0), 0) : 0));
+  const maxOpen = Number(graded.openMax != null ? graded.openMax : (S.form ? S.form.questions.filter(q => q.type === "open").reduce((a, q) => a + Number(q.points || 0), 0) : 0));
   const pct = Math.max(0, Math.min(100, graded.percent));
   const pm = Number(S.settings.passMark || 50);
   $("#dial").style.setProperty("--pct", pct);
   $("#dial").style.setProperty("--dial",
     pct >= 70 ? "var(--green-500)" : pct >= pm ? "var(--gold)" : "var(--danger)");
   $("#res-score").textContent = String(Math.round(graded.total * 10) / 10).replace(/\.0$/, "");
+  const totalMaxEl = $("#res-total-max");
+  if (totalMaxEl) totalMaxEl.textContent = "/" + maxTotal;
   $("#res-name").textContent = `${rec.candidate_first} ${rec.candidate_last}`;
   const formLabel = (S.bank.forms && S.bank.forms[rec.form] && S.bank.forms[rec.form].label) || rec.form || "—";
   const placeTxt = placeLabel(rec.place_code, rec.place_name);
@@ -397,17 +453,27 @@ function showResult(rec, graded) {
     `${S.bank.meta.title} — ${formLabel}${placeTxt !== "—" ? " · " + placeTxt : ""} · ${fmtDate(rec.finished_at)} · المدة ${fmtDuration(rec.duration_sec)}`;
   $("#res-mcq").textContent = String(graded.mcq);
   $("#res-open").textContent = String(graded.open);
+  const mcqLabel = $("#res-mcq-label");
+  if (mcqLabel) mcqLabel.textContent = `الاختيارات / ${maxMcq}`;
+  const openLabel = $("#res-open-label");
+  if (openLabel) openLabel.textContent = `التعبير / ${maxOpen}`;
   $("#res-pct").innerHTML = `${Math.round(graded.percent)}<small>%</small>`;
-  $("#res-eyebrow").textContent = pct >= Number(S.settings.passMark || 50) ? "نتيجة الاختبار" : "نتيجة الاختبار — دون المعدّل";
+  $("#res-eyebrow").textContent = pct >= pm ? "نتيجة الاختبار" : "نتيجة الاختبار — دون المعدّل";
+
+  const resSave = $("#res-save");
+  if (resSave) { resSave.hidden = true; resSave.innerHTML = ""; }
+
+  const openDetails = (graded.details || []).filter(d => d.type === "open");
+  const wroteOpen = openDetails.some(d => String(d.openText || "").trim().length > 0);
 
   const note = $("#res-note");
   if (S.submission && S.submission.status === "validated") {
     note.innerHTML =
-      `<b>ملاحظة:</b> ثبّت المشرف نقطة التعبير (${graded.open}/40) بعد مراجعتها. ` +
+      `<b>ملاحظة:</b> ثبّت المشرف نقطة التعبير (${graded.open}/${maxOpen}) بعد مراجعتها. ` +
       `يمكنك الآن تحميل هذه الصفحة بصيغة PDF (من زر «استخراج النتيجة PDF» ثم اختيار «حفظ كـ PDF»).`;
-  } else if (graded.open > 0) {
+  } else if (wroteOpen) {
     note.innerHTML =
-      `<b>ملاحظة:</b> نقطة التعبير (${graded.open}/40) نقطة <b>احتياطية آلية</b> تُحسب من مطابقة عناصر الإجابة النموذجية؛ ` +
+      `<b>ملاحظة:</b> نقطة التعبير (${graded.open}/${maxOpen}) نقطة <b>احتياطية آلية</b> تُحسب من مطابقة عناصر الإجابة النموذجية؛ ` +
       `يراجعها المشرف ويُثبّت النقطة النهائية. النقطتان أعلاه محفوظتان لدى المشرف مع نسخة من أجوبتك.`;
   } else {
     note.innerHTML = `<b>ملاحظة:</b> لم تُحرّر أجوبة التعبير، لذلك لم تُحتسب نقطتها.`;
@@ -431,7 +497,7 @@ function renderReview(graded, pct) {
     `<span>${esc((S.bank.forms && S.bank.forms[S.submission.form] && S.bank.forms[S.submission.form].label) || S.submission.form)}</span>` +
     `<span>${esc(placeLabel(S.submission.place_code, S.submission.place_name))}</span>` +
     `<span>${esc(fmtDate(S.submission.finished_at))}</span>` +
-    `<span>النقطة: <b>${Math.round(graded.total * 10) / 10}/100</b></span>`;
+    `<span>النقطة: <b>${Math.round(graded.total * 10) / 10}/${maxTotal}</b></span>`;
   box.appendChild(head);
 
   S.form.questions.forEach((q, i) => {
@@ -462,7 +528,7 @@ function renderReview(graded, pct) {
       body += `<div class="quote-block" style="margin-top:8px"><b>عناصر الإجابة النموذجية:</b> ${esc(q.modelAnswer || "")}</div>`;
       const rub = (d.rubric || []).map(r => {
         const src = (q.rubric || []).find(x => x.id === r.id) || {};
-        return `<li>${esc(src.label || r.id)} — ${r.earned}/${r.points}</li>`;
+        return `<li>${esc(src.label || r.id)} — ${Number(r.earned) || 0}/${Number(r.points) || 0}</li>`;
       }).join("");
       if (rub) body += `<ul class="small muted" style="margin:8px 0 0;padding-inline-start:20px">${rub}</ul>`;
     }
@@ -528,29 +594,43 @@ function findFinishedForSession(sessionId) {
 function findWaitingForSession(sessionId) {
   const mine = deviceId();
   return localMirrorRows().find(r =>
-    r && r.session_id === sessionId && r.device_id === mine && r.status === "waiting"
+    r && r.session_id === sessionId && r.device_id === mine &&
+    r.status === "waiting" && !r.started_at && r.status !== "removed"
   ) || null;
 }
 
 const normFull = (first, last) =>
-  normalizeAr(`${first || ""} ${last || ""}`).replace(/\s+/g, " ").trim();
+  normalizeAr(`${first || ""} ${last || ""}`).toLowerCase().replace(/\s+/g, "");
+
+function sameName(a, b, c, d) {
+  const k1 = normFull(a, b);
+  const k2 = normFull(c, d);
+  return k1 && (k1 === k2 || k1 === normFull(d, c));
+}
 
 /* يمنع الترشح المكرر في نفس الجلسة: نفس الجهاز (محليًا) أو نفس الاسم (طاولات/محليًا) */
 async function findDuplicate(sessionId, candidate) {
   const device = deviceId();
-  const nameKey = normFull(candidate.first, candidate.last);
 
-  const mine = localMirrorRows().find(r => r && r.session_id === sessionId && r.device_id === device);
+  const mine = localMirrorRows().find(r => r && r.session_id === sessionId && r.device_id === device && r.status !== "removed");
   if (mine) return mine.status === "waiting" ? { kind: "device-waiting", row: mine } : { kind: "device", row: mine };
+
+  try {
+    if (localStorage.getItem(DONE_KEY(sessionId))) {
+      return { kind: "device", row: null };
+    }
+  } catch (e) { /* ignore */ }
 
   try {
     const rows = await Store.listSubmissions();
     const dup = rows.find(r =>
-      r && r.session_id === sessionId &&
+      r && r.session_id === sessionId && r.status !== "removed" &&
       (r.device_id === device ||
-       normFull(r.candidate_first, r.candidate_last) === nameKey));
+       sameName(r.candidate_first, r.candidate_last, candidate.first, candidate.last)));
     if (dup) return dup.status === "waiting" ? { kind: "name-waiting", row: dup } : { kind: "name", row: dup };
-  } catch (e) { /* القراءة تعذّرت — لا نحجب المترشح */ }
+  } catch (e) {
+    return { kind: "error", row: null };
+  }
   return null;
 }
 
@@ -616,68 +696,91 @@ function showWaiting(candidate, launch, waitingRow) {
   startWaitPoll();
 }
 
+let checkingLaunchFlag = false;
 async function checkLaunch() {
-  let launch = null;
-  try { launch = await Store.getLaunch(); } catch (e) { return; /* الشبكة — أعد المحاولة في الدورة القادمة */ }
+  if (checkingLaunchFlag || S.examStarted) return;
+  checkingLaunchFlag = true;
+  try {
+    let launch = null;
+    try { launch = await Store.getLaunch(); } catch (e) { return; }
 
-  /* لا توجد جلسة إطلاق أصلًا: أُلغيت أو لم تُنشأ */
-  if (!launch) { await closeWaitingRoom("أُلغيت جلسة الانتظار. تواصل مع المشرف."); return; }
+    if (!launch) { await closeWaitingRoom("أُلغيت جلسة الانتظار. تواصل مع المشرف."); return; }
 
-  /* انتقل المشرف إلى جلسة جديدة */
-  if (!S.launch || launch.id !== S.launch.id) {
-    const oldId = S.waitingId;
-    if (oldId) { try { await Store.deleteSubmission(oldId); } catch (e) { /* ignore */ } }
-    S.waitingId = null;
-    if (launch.status === "closed") { await closeWaitingRoom("أُغلق باب الترشح. جلسة جديدة يفتحها المشرف قريبًا."); return; }
-    const c = { first: S.candidate.first, last: S.candidate.last,
-      placeCode: S.candidate.placeCode || "", placeName: S.candidate.placeName || "" };
-    const rec = await joinWaiting(c, launch);
-    S.launch = launch;
-    toast("انتقلتَ تلقائيًا إلى الجلسة الجديدة");
-    if (launch.status === "launched") { stopWaitPoll(); stopWaitClock(); startExam(c, { waitingId: rec.id, launch }); return; }
-    showWaiting(c, launch, rec);
-    return;
+    if (!S.launch || launch.id !== S.launch.id) {
+      const oldId = S.waitingId;
+      if (oldId && !S.examStarted) { try { await Store.deleteSubmission(oldId); } catch (e) { /* ignore */ } }
+      S.waitingId = null;
+      if (launch.status === "closed") { await closeWaitingRoom("أُغلق باب الترشح. جلسة جديدة يفتحها المشرف قريبًا."); return; }
+      const c = { first: S.candidate.first, last: S.candidate.last,
+        placeCode: S.candidate.placeCode || "", placeName: S.candidate.placeName || "" };
+      let rec;
+      try { rec = await joinWaiting(c, launch); }
+      catch (e) { await closeWaitingRoom("تعذّر الانتقال إلى الجلسة الجديدة."); return; }
+      S.launch = launch;
+      toast("انتقلتَ تلقائيًا إلى الجلسة الجديدة");
+      if (launch.status === "launched") { stopWaitPoll(); stopWaitClock(); await startExam(c, { waitingId: rec.id, launch }); return; }
+      showWaiting(c, launch, rec);
+      return;
+    }
+
+    if (launch.status === "launched") {
+      stopWaitPoll();
+      stopWaitClock();
+      $("#wait-status-text").textContent = "انطلق الاختبار! يتم تجهيز الأسئلة…";
+      toast("انطلق الاختبار — بالتوفيق!");
+      await startExam({ first: S.candidate.first, last: S.candidate.last,
+        placeCode: S.candidate.placeCode || "", placeName: S.candidate.placeName || "" },
+        { waitingId: S.waitingId, launch });
+      return;
+    }
+
+    if (launch.status === "closed") {
+      await closeWaitingRoom("أُغلق باب الترشح لهذه الجلسة قبل انطلاقها. تواصل مع المشرف.");
+      return;
+    }
+
+    const labelEl = $("#wait-session");
+    if (labelEl) labelEl.textContent = launch.label || "—";
+
+    refreshWaitingCount(false);
+  } finally {
+    checkingLaunchFlag = false;
   }
-
-  if (launch.status === "launched") {
-    stopWaitPoll();
-    stopWaitClock();
-    $("#wait-status-text").textContent = "انطلق الاختبار! يتم تجهيز الأسئلة…";
-    toast("انطلق الاختبار — بالتوفيق!");
-    startExam({ first: S.candidate.first, last: S.candidate.last,
-      placeCode: S.candidate.placeCode || "", placeName: S.candidate.placeName || "" },
-      { waitingId: S.waitingId, launch });
-    return;
-  }
-
-  if (launch.status === "closed") {
-    await closeWaitingRoom("أُغلق باب الترشح لهذه الجلسة قبل انطلاقها. تواصل مع المشرف.");
-    return;
-  }
-
-  /* يعكس تعديل المشرف لاسم الجلسة أثناء الانتظار */
-  const labelEl = $("#wait-session");
-  if (labelEl) labelEl.textContent = launch.label || "—";
-
-  refreshWaitingCount(false);
 }
 
 async function closeWaitingRoom(message) {
-  stopWaitPoll();
-  stopWaitClock();
-  if (S.waitingId) { try { await Store.deleteSubmission(S.waitingId); } catch (e) { /* ignore */ } }
-  S.waitingId = null;
-  try { localStorage.removeItem(KEYS.wait); } catch (e) { /* ignore */ }
-  $("#wait-status-text").textContent = message;
-  $("#wait-count").textContent = "—";
-  $("#btn-leave-wait").textContent = "عودة إلى الصفحة الرئيسية";
-}
-
-async function leaveWaiting() {
+  if (S.examStarted) return;
   stopWaitPoll();
   stopWaitClock();
   if (S.waitingId) {
-    try { await Store.deleteSubmission(S.waitingId); } catch (e) { /* ignore */ }
+    try {
+      const rows = await Store.listSubmissions();
+      const r = rows.find(x => x.id === S.waitingId);
+      if (r && r.status === "waiting" && !r.started_at) {
+        await Store.deleteSubmission(S.waitingId);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  S.waitingId = null;
+  try { localStorage.removeItem(KEYS.wait); } catch (e) { /* ignore */ }
+  const t = $("#wait-status-text");
+  if (t) t.textContent = message;
+  const c = $("#wait-count");
+  if (c) c.textContent = "—";
+  const b = $("#btn-leave-wait");
+  if (b) b.textContent = "عودة إلى الصفحة الرئيسية";
+}
+
+async function leaveWaiting() {
+  if (S.examStarted) return;
+  stopWaitPoll();
+  stopWaitClock();
+  if (S.waitingId) {
+    try {
+      const rows = await Store.listSubmissions();
+      const r = rows.find(x => x.id === S.waitingId);
+      if (r && r.status === "waiting" && !r.started_at) await Store.deleteSubmission(S.waitingId);
+    } catch (e) { /* ignore */ }
     S.waitingId = null;
   }
   try { localStorage.removeItem(KEYS.wait); } catch (e) { /* ignore */ }
@@ -708,16 +811,13 @@ async function joinWaiting(c, launch) {
     joined_at: new Date().toISOString(),
     answers: JSON.stringify({ sessionId: launch.id, status: "waiting" })
   };
-  try {
-    const rec = await Store.addSubmission(base);
-    return rec && rec.id ? rec : { ...base, id: uid() };
-  } catch (e) {
-    console.warn("تعذر تسجيل الانتظار", e);
-    return { ...base, id: uid() };
-  }
+  const rec = await Store.addSubmission(base);
+  if (!rec || !rec.id) throw new Error("تعذّر تسجيل الانتظار");
+  return rec;
 }
 
 function showRepeatBox(row) {
+  S.previousRow = row;
   const form = $("#start-form");
   const hint = $("#start-hint");
   const box = $("#repeat-box");
@@ -735,9 +835,15 @@ function showRepeatBox(row) {
 /* يعيد بناء عرض النتيجة من النسخة المحفوظة على الجهاز */
 function showPreviousResult(row) {
   let data = {};
-  try { data = JSON.parse(row.answers || "{}") || {}; } catch (e) { data = {}; }
+  if (typeof row.answers === "object" && row.answers) data = row.answers;
+  else { try { data = JSON.parse(row.answers || "{}") || {}; } catch (e) { data = {}; } }
   const snap = Array.isArray(data.snapshot) ? data.snapshot : [];
-  const details = Array.isArray(data.details) ? data.details : [];
+  let details = Array.isArray(data.details) && data.details.length
+    ? data.details
+    : snap.map(s => s.type === "mcq"
+        ? { qid: s.qid, type: "mcq", given: s.given || null, correct: s.correct, earned: (s.given && s.given === s.correct) ? Number(s.points || 0) : 0,
+            givenText: (s.options || []).find(o => o.id === s.given)?.text || "", correctText: (s.options || []).find(o => o.id === s.correct)?.text || "" }
+        : { qid: s.qid, type: "open", openText: s.openText || "", earned: 0, rubric: [] });
 
   const questions = snap.map(s => s.type === "mcq"
     ? { id: s.qid, type: "mcq", topic: s.topic, points: s.points, text: s.text,
@@ -745,13 +851,19 @@ function showPreviousResult(row) {
     : { id: s.qid, type: "open", topic: s.topic, points: s.points, text: s.text,
         modelAnswer: s.modelAnswer || "", rubric: s.rubric || [] });
 
-  const mcq = snap.filter(s => s.type === "mcq")
+  const computedMcq = snap.filter(s => s.type === "mcq")
     .reduce((sum, s) => sum + (s.given && s.given === s.correct ? Number(s.points || 0) : 0), 0);
-  const open = Number(row.open_score || 0);
+  const mcq = row.mcq_score != null ? Number(row.mcq_score) : computedMcq;
+  const open = row.open_score != null ? Number(row.open_score) : Number(row.open_score || 0);
+  const total = row.final_score != null ? Number(row.final_score) : (mcq + open);
+  const maxTotal = questions.reduce((a, q) => a + Number(q.points || 0), 0) || 1;
+  const percent = row.percent != null ? Number(row.percent) : Math.round((total / maxTotal) * 1000) / 10;
+
   const graded = {
-    details, mcq, open,
-    total: Number(row.final_score != null ? row.final_score : mcq + open),
-    percent: Number(row.percent || 0)
+    details, mcq, open, total, percent,
+    maxPoints: maxTotal,
+    mcqMax: questions.filter(q => q.type === "mcq").reduce((a, q) => a + Number(q.points || 0), 0),
+    openMax: questions.filter(q => q.type === "open").reduce((a, q) => a + Number(q.points || 0), 0)
   };
 
   S.submission = row;
@@ -802,46 +914,78 @@ function fillPlaceOptions() {
     .join("");
 }
 
+let startingPromise = null;
 async function startExam(candidate, opts) {
+  if (startingPromise) return startingPromise;
   opts = opts || {};
-  /* نعيد قراءة الإعدادات وبنك الأسئلة لحظة البدء: أي تعديل من المشرف
-     أثناء الانتظار يُطبَّق فورًا على المؤقّت وعلى الأسئلة. */
-  try {
-    const [settings, bank] = await Promise.all([Store.getSettings(), Store.getBank()]);
-    if (settings) S.settings = settings;
-    if (bank) S.bank = bank;
-  } catch (e) { /* garder le cache local */ }
+  startingPromise = (async () => {
+    /* نعيد قراءة الإعدادات وبنك الأسئلة لحظة البدء */
+    try {
+      const [settings, bank] = await Promise.all([Store.getSettings(), Store.getBank()]);
+      if (settings) S.settings = settings;
+      if (bank) S.bank = bank;
+    } catch (e) { /* garder le cache local */ }
 
-  S.launch = opts.launch || S.launch || null;
-  S.waitingId = opts.waitingId != null ? opts.waitingId : S.waitingId;
-  const paper = buildPaper(S.bank, S.settings);
-  S.formKey = paper.formKey;
-  S.form = paper.form;
-  S.questions = paper.form.questions;
-  S.answers = {};
-  S.idx = 0;
-  S.startedAt = new Date().toISOString();
-  S.candidate = candidate;
-  S.finished = false;
+    S.launch = opts.launch || S.launch || null;
+    S.waitingId = opts.waitingId != null ? opts.waitingId : S.waitingId;
 
-  setMainView("#view-exam");
-  $("#ex-name").textContent = `${candidate.first} ${candidate.last}`;
-  const placeTxt = placeLabel(candidate.placeCode, candidate.placeName);
-  $("#ex-form").textContent =
-    `${S.bank.forms[S.formKey].label} · ${S.questions.length} أسئلة · ${formTotal(S.form)} نقطة` +
-    (placeTxt !== "—" ? ` · ${placeTxt}` : "");
+    let paper;
+    try {
+      paper = buildPaper(S.bank, S.settings);
+    } catch (e) {
+      const msg = e && e.message ? e.message : "تعذّر تجهيز الأسئلة.";
+      const err = $("#form-err");
+      if (err) err.textContent = msg;
+      toast(msg, true);
+      return;
+    }
+    if (!paper || !paper.form || !Array.isArray(paper.form.questions) || !paper.form.questions.length) {
+      const msg = "لا توجد أسئلة في هذا النموذج.";
+      const err = $("#form-err");
+      if (err) err.textContent = msg;
+      toast(msg, true);
+      return;
+    }
 
-  /* تمييز سجل الانتظار بأن المترشح بدأ فعليًا (لا يُحذف عند إغلاق الجلسة) */
-  if (S.waitingId) {
-    Store.updateSubmission(S.waitingId, {
-      started_at: S.startedAt,
-      exam_started_at: S.startedAt,
-      form: S.formKey
-    }).catch(e => console.warn("تعذّر تعليم بداية الاختبار", e));
-  }
+    S.formKey = paper.formKey;
+    S.form = paper.form;
+    S.questions = paper.form.questions;
+    S.answers = {};
+    S.idx = 0;
+    S.startedAt = new Date().toISOString();
+    S.candidate = candidate;
+    S.finished = false;
+    S.persisting = false;
+    S.examStarted = true;
 
-  renderQuestion();
-  window.scrollTo({ top: 0 });
+    stopWaitPoll();
+    stopWaitClock();
+
+    setMainView("#view-exam");
+    $("#ex-name").textContent = `${candidate.first} ${candidate.last}`;
+    const placeTxt = placeLabel(candidate.placeCode, candidate.placeName);
+    $("#ex-form").textContent =
+      `${(S.bank.forms[S.formKey] && S.bank.forms[S.formKey].label) || S.formKey} · ${S.questions.length} أسئلة · ${formTotal(S.form)} نقطة` +
+      (placeTxt !== "—" ? ` · ${placeTxt}` : "");
+
+    /* تمييز سجل الانتظار بأن المترشح بدأ فعليًا */
+    if (S.waitingId) {
+      try {
+        await Store.updateSubmission(S.waitingId, {
+          started_at: S.startedAt,
+          exam_started_at: S.startedAt,
+          form: S.formKey,
+          status: "waiting"
+        });
+      } catch (e) {
+        console.warn("تعذّر تعليم بداية الاختبار", e);
+      }
+    }
+
+    renderQuestion();
+    window.scrollTo({ top: 0 });
+  })().finally(() => { startingPromise = null; });
+  return startingPromise;
 }
 
 async function handleJoin(c) {
@@ -850,7 +994,7 @@ async function handleJoin(c) {
   err.textContent = "";
   btn.disabled = true;
   try {
-    const launch = await Store.getLaunch();
+    let launch = await Store.getLaunch();
     S.launch = launch;
     if (!launch) {
       err.textContent = "لم تُنشئ المشرف جلسة الاختبار بعد. انتظر قليلًا ثم حاول مجدًا.";
@@ -860,20 +1004,39 @@ async function handleJoin(c) {
     const dup = await findDuplicate(launch.id, c);
     if (dup) {
       const mine = dup.row && dup.row.device_id === deviceId();
+      if (dup.kind === "error") {
+        err.textContent = "تعذّر التحقق من التكرار. تحقّق من الاتصال ثم حاول مجدًا.";
+        return;
+      }
       if (dup.kind.endsWith("waiting")) {
         if (mine) {
           clearProgress();
-          if (launch.status === "launched") startExam(c, { waitingId: dup.row.id, launch });
-          else showWaiting(c, launch, dup.row);
+          // إعادة قراءة launch قبل البدء
+          const fresh = await Store.getLaunch();
+          if (!fresh || fresh.id !== launch.id || fresh.status === "closed") {
+            err.textContent = "تغيرت حالة الجلسة. أعد المحاولة.";
+            return;
+          }
+          S.launch = fresh;
+          if (fresh.status === "launched") await startExam(c, { waitingId: dup.row.id, launch: fresh });
+          else showWaiting(c, fresh, dup.row);
           return;
         }
         err.textContent = "هذا الاسم مسجّل في قائمة الانتظار على جهاز آخر. تواصل مع المشرف.";
         return;
       }
-      if (mine) showRepeatBox(dup.row);
+      if (mine) { if (dup.row) showRepeatBox(dup.row); }
       err.textContent = "لا يمكن الترشح أكثر من مرة في الجلسة الواحدة (نفس الجهاز أو نفس الاسم).";
       return;
     }
+
+    const freshLaunch = await Store.getLaunch();
+    if (!freshLaunch || freshLaunch.id !== launch.id) {
+      err.textContent = "تغيرت حالة الجلسة. أعد المحاولة.";
+      return;
+    }
+    launch = freshLaunch;
+    S.launch = launch;
 
     if (launch.status === "closed") {
       err.textContent = "أُغلق باب الترشح لهذه الجلسة. تواصل مع المشرف.";
@@ -884,9 +1047,10 @@ async function handleJoin(c) {
       showWaiting(c, launch, rec);
       return;
     }
-    /* launched */
+    /* launched: إنشاء سجل began before start */
+    const rec = await joinWaiting(c, launch);
     clearProgress();
-    startExam(c, { launch });
+    await startExam(c, { waitingId: rec.id, launch });
   } catch (e) {
     console.warn(e);
     err.textContent = "تعذّر الاتصال. تحقّق من الشبكة ثم حاول مجدًا.";
@@ -932,16 +1096,30 @@ async function boot() {
   try { launchNow = await Store.getLaunch(); } catch (e) { launchNow = null; }
   S.launch = launchNow;
   let prev = null;
+  const progressNow = readProgress();
   if (launchNow) {
     prev = findFinishedForSession(launchNow.id);
     if (prev) showRepeatBox(prev);
-    else {
+    else if (!progressNow) {
       const waiting = findWaitingForSession(launchNow.id);
       if (waiting) {
         showWaiting(
           { first: waiting.candidate_first, last: waiting.candidate_last,
             placeCode: waiting.place_code || "", placeName: waiting.place_name || "" },
           launchNow, waiting);
+      } else {
+        try {
+          const wRaw = localStorage.getItem(KEYS.wait);
+          if (wRaw) {
+            const w = JSON.parse(wRaw);
+            if (w && w.sessionId === launchNow.id) {
+              showWaiting(
+                { first: w.first || "", last: w.last || "",
+                  placeCode: w.placeCode || "", placeName: w.placeName || "" },
+                launchNow, { id: w.waitingId });
+            }
+          }
+        } catch (e) { /* ignore */ }
       }
     }
   }
@@ -956,8 +1134,9 @@ async function boot() {
   const prevBtn = $("#btn-show-previous");
   if (prevBtn) prevBtn.addEventListener("click", () => {
     const l = S.launch;
-    const row = l ? findFinishedForSession(l.id) : null;
+    const row = S.previousRow || (l ? findFinishedForSession(l.id) : null);
     if (row) showPreviousResult(row);
+    else toast("لم يُعثر على النتيجة على هذا الجهاز. تواصل مع المشرف.", true);
   });
 
   const leaveBtn = $("#btn-leave-wait");
@@ -974,7 +1153,8 @@ async function boot() {
       const o = q.options[Number(ev.key) - 1];
       if (o) selectOption(q, o.id);
     }
-    if (ev.key === "Enter" && ev.target.tagName !== "TEXTAREA") {
+    const tag = (ev.target && ev.target.tagName || "").toLowerCase();
+    if (ev.key === "Enter" && tag !== "textarea" && tag !== "button" && tag !== "a" && tag !== "input" && tag !== "select") {
       ev.preventDefault();
       nextQuestion(false);
     }
@@ -983,7 +1163,8 @@ async function boot() {
   window.addEventListener("beforeunload", ev => {
     const examVisible = !$("#view-exam").hidden && !S.finished;
     const waitVisible = !$("#view-wait").hidden;
-    if (examVisible || waitVisible) {
+    const resultUnsaved = !$("#view-result").hidden && !S.finished;
+    if (examVisible || waitVisible || resultUnsaved || S.persisting) {
       ev.preventDefault();
       ev.returnValue = "";
     }
@@ -1018,23 +1199,44 @@ async function boot() {
 }
 
 function resumeExam(p) {
-  S.formKey = p.formKey;
-  S.form = S.bank.forms[p.formKey] || S.bank.forms.A;
-  S.questions = p.questions;
+  S.formKey = p.formKey || S.formKey || "A";
+  const baseForm = (S.bank.forms && S.bank.forms[S.formKey]) || (S.bank.forms && S.bank.forms.A) || { questions: [], label: S.formKey };
+  S.form = { ...baseForm, questions: Array.isArray(p.questions) ? p.questions : baseForm.questions };
+  S.questions = Array.isArray(p.questions) && p.questions.length ? p.questions : baseForm.questions;
   S.answers = p.answers || {};
-  S.idx = Math.min(p.idx || 0, S.questions.length - 1);
+  S.idx = Math.min(p.idx || 0, Math.max(0, S.questions.length - 1));
   S.startedAt = p.startedAt || new Date().toISOString();
   S.candidate = p.candidate || { first: "", last: "" };
   S.launch = p.launch || S.launch || null;
   S.waitingId = p.waitingId != null ? p.waitingId : S.waitingId;
   S.finished = false;
+  S.persisting = false;
+  S.examStarted = true;
+  stopWaitPoll();
+  stopWaitClock();
+
+  const allotted = S.questions.length ? allottedSeconds(S.questions[S.idx]) : 0;
+  let rem = allotted;
+  if (p.deadline) rem = Math.ceil((p.deadline - Date.now()) / 1000);
+  else if (p.remaining != null) rem = p.remaining;
+  S.resumeRemaining = Math.max(0, Math.min(allotted, rem));
 
   setMainView("#view-exam");
   $("#ex-name").textContent = `${S.candidate.first} ${S.candidate.last}`;
-  $("#ex-form").textContent = `${S.bank.forms[S.formKey].label} · ${S.questions.length} أسئلة · ${formTotal(S.form)} نقطة`;
+  $("#ex-form").textContent = `${(S.bank.forms[S.formKey] && S.bank.forms[S.formKey].label) || S.formKey} · ${S.questions.length} أسئلة · ${formTotal(S.form)} نقطة`;
   renderQuestion();
   toast("تمّ استئناف المحاولة");
 }
+
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden || $("#view-exam").hidden || S.finished) return;
+  const q = S.questions[S.idx];
+  if (!q || !S.qDeadline) return;
+  const allotted = allottedSeconds(q);
+  S.remaining = Math.max(0, Math.ceil((S.qDeadline - Date.now()) / 1000));
+  renderTimer(allotted);
+  if (S.remaining <= 0) { stopTick(); nextQuestion(true); }
+});
 
 document.addEventListener("DOMContentLoaded", boot);
 })();

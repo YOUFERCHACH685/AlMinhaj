@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ربط الاختبار بقاعدة سحابية — المنهاج النبوي</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .setup-steps { counter-reset: step; list-style: none; padding: 0; margin: 0; }
+    .setup-steps > li {
+      position: relative;
+      padding: 14px 54px 14px 0;
+      border-bottom: 1px solid var(--line, #e5e1d8);
+    }
+    .setup-steps > li:last-child { border-bottom: 0; }
+    .setup-steps > li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      inset-inline-start: 0;
+      top: 14px;
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      background: var(--green-800, #1f5c45);
+      color: #fff;
+      display: grid; place-items: center;
+      font-weight: 700;
+    }
+    .setup-steps code {
+      display: inline-block;
+      direction: ltr;
+      background: #f4f1e9;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: .9em;
+      word-break: break-all;
+    }
+    .callout {
+      background: #fff8e6;
+      border: 1px solid #ecd9a3;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin: 16px 0;
+    }
+    .callout.danger { background: #fdf0ee; border-color: #efc5be; }
+  </style>
+</head>
+<body>
+  <header class="site-head">
+    <div class="wrap head-inner">
+      <div class="brand">
+        <span class="brand-mark">م.ن</span>
+        <div>
+          <div class="brand-title">اختبار في المنهاج النبوي</div>
+          <div class="brand-sub">دليل الربط بقاعدة سحابية</div>
+        </div>
+      </div>
+      <nav class="site-nav">
+        <a href="admin.html">فضاء المشرف</a>
+        <a href="index.html">فضاء المترشح</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap" style="padding-block: 28px 60px; max-width: 900px;">
+    <section class="card">
+      <div class="eyebrow">خطوة واحدة قبل الاختبار</div>
+      <h1 style="margin-top:0">ربط الموقع بقاعدة Firebase</h1>
+      <p class="muted">
+        عندما يستعمل المشرف والمترشحون <b>هواتف مختلفة</b>، لا تكفي الذاكرة المحلية للمتصفح.
+        اربط الموقع بقاعدة <b>Firebase Realtime Database</b> المجانية مرة واحدة، وستظهر الجلسة
+        وقائمة الانتظار والنتائج لكل الأجهزة فورًا.
+      </p>
+
+      <div class="callout">
+        <b>ما تحتاجه:</b> حساب Google (مجاني) + 5 دقائق. لا تحتاج إلى بطاقة بنكية.
+      </div>
+
+      <ol class="setup-steps">
+        <li>
+          افتح <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">console.firebase.google.com</a>
+          وسجّل الدخول بحساب Google.
+        </li>
+        <li>
+          اضغط <b>Add project</b> / «إضافة مشروع»، اختر اسمًا مثل <code>manhaj-exam</code>،
+          ثم <b>Continue</b>. يمكنك تعطيل Google Analytics ثم <b>Create project</b>.
+        </li>
+        <li>
+          من القائمة الجانبية: <b>Build</b> ← <b>Realtime Database</b> ← <b>Create Database</b>.
+        </li>
+        <li>
+          اختر موقعًا قريبًا (مثل <code>europe-west1</code>) ← <b>Next</b> ←
+          اختر <b>Start in test mode</b> ← <b>Enable</b>.
+        </li>
+        <li>
+          انسخ <b>رابط قاعدة البيانات</b> الظاهر أعلى الصفحة. يبدأ بـ
+          <code>https://...firebaseio.com</code> أو <code>https://...firebasedatabase.app</code>.
+        </li>
+        <li>
+          افتح <a href="admin.html">فضاء المشرف</a> ← تبويب <b>«الإعدادات»</b> ←
+          قسم <b>«المزامنة بين الأجهزة»</b>، الصق الرابط ثم اضغط <b>«حفظ الرابط»</b>.
+        </li>
+        <li>
+          بعد إعادة التحميل، اضغط <b>«نسخ رابط المترشحين»</b>. انسخ الرابط الذي يبدأ بـ
+          <code>index.html?db=...</code> ووزّعه على المترشحين (واتساب، رمز QR، ...).
+          هذا الرابط هو الذي يفعّل المزامنة على هواتفهم.
+        </li>
+        <li>
+          اختبر من هاتفين: أنشئ جلسة من هاتف المشرف، ثم افتح رابط المترشحين على الهاتف الآخر
+          وسجّل اسمًا. يجب أن يظهر المترشح في قائمة الانتظار عند المشرف.
+        </li>
+      </ol>
+
+      <div class="callout danger">
+        <b>تنبيه أمني:</b> وضع <b>Test mode</b> يسمح لأي شخص يملك الرابط بقراءة البيانات
+        وكتابتها. استعمله للاختبار الداخلي فقط، وأوقف القاعدة أو غيّر القواعد بعد انتهاء الاختبار.
+        لا تضع بيانات شخصية حساسة.
+      </div>
+
+      <h2>إذا لم تعمل المزامنة</h2>
+      <ul>
+        <li>تأكد أن الرابط يبدأ بـ <code>https://</code> وأنه بلا شرطة <code>/</code> في آخره.</li>
+        <li>تأكد أن قاعدة البيانات أُنشئت فعلاً (وليس Firestore فقط).</li>
+        <li>افتح رابط المترشحين الذي يحوي <code>?db=</code>، وليس الرابط العادي.</li>
+        <li>إذا كانت القاعدة جديدة، انتظر دقيقة بعد إنشائها ثم أعد المحاولة.</li>
+        <li>افتح وحدة تحكم المتصفح (F12) وتحقق من رسائل الخطأ.</li>
+      </ul>
+
+      <div class="btn-row" style="margin-top:22px">
+        <a class="btn" href="admin.html">العودة إلى فضاء المشرف</a>
+        <a class="btn btn-ghost" href="index.html">فتح فضاء المترشح</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-foot">
+    <div class="wrap">
+      <span>المرجع: عبد السلام ياسين، «المنهاج النبوي: تربية وتنظيمًا وزحفًا».</span>
+    </div>
+  </footer>
+</body>
+</html>

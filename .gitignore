@@ -1,0 +1,7 @@
+# بيانات الخادم المحلي (لا تُرفع إلى GitHub)
+data/
+node_modules/
+
+# ملفات مؤقتة
+commit-message.txt
+*.tmp

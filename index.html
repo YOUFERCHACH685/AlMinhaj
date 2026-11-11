@@ -186,15 +186,15 @@
     <div class="card card-pad-lg" id="result-card">
       <div class="score-hero">
         <div class="score-dial" id="dial" style="--pct:0">
-          <span class="val"><span id="res-score">0</span><small>/100</small></span>
+          <span class="val"><span id="res-score">0</span><small id="res-total-max">/100</small></span>
         </div>
         <div style="min-width:0">
           <p class="eyebrow" id="res-eyebrow">نتيجة الاختبار</p>
           <h2 style="margin:0 0 6px" id="res-name">—</h2>
           <p class="small muted" id="res-meta">—</p>
           <div class="kpi-grid" style="margin-top:14px">
-            <div class="kpi"><div class="k">الاختيارات / 60</div><div class="v" id="res-mcq">0</div></div>
-            <div class="kpi"><div class="k">التعبير / 40</div><div class="v" id="res-open">0</div></div>
+            <div class="kpi"><div class="k" id="res-mcq-label">الاختيارات</div><div class="v" id="res-mcq">0</div></div>
+            <div class="kpi"><div class="k" id="res-open-label">التعبير</div><div class="v" id="res-open">0</div></div>
             <div class="kpi"><div class="k">النسبة</div><div class="v" id="res-pct">0<small>%</small></div></div>
           </div>
         </div>
@@ -203,6 +203,7 @@
       <hr class="divider">
 
       <div class="rule-box" id="res-note" style="margin-bottom:16px"></div>
+      <div id="res-save" class="callout callout-warn" hidden style="margin-bottom:16px"></div>
 
       <div class="btn-row noprint" style="margin-bottom:8px">
         <button type="button" class="btn btn-gold" id="btn-pdf">استخراج النتيجة PDF</button>
@@ -231,6 +232,7 @@
 </footer>
 
 <script src="js/bank.js"></script>
+<script src="js/config.js"></script>
 <script src="js/core.js"></script>
 <script src="js/exam.js"></script>
 </body>

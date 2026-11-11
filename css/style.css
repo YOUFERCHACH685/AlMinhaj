@@ -233,6 +233,23 @@ input[readonly] { background: #f1efe9; color: var(--ink-soft); }
 .hint { color: var(--ink-soft); font-size: .86rem; }
 .err { color: var(--danger); font-size: .85rem; margin-top: 6px; min-height: 1em; }
 
+/* تنبيهات داخلية (وضع التخزين، المزامنة...) */
+.callout {
+  border: 1px solid var(--line);
+  background: var(--white);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  margin: 0 0 16px;
+  font-size: .92rem;
+  line-height: 1.7;
+}
+.callout-warn {
+  background: var(--warn-bg);
+  border-color: #ecd39a;
+  color: var(--ink);
+}
+.callout a { font-weight: 700; }
+
 /* ---------------------------------------------------------------- buttons */
 .btn {
   display: inline-flex;
@@ -969,4 +986,28 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .score-hero { align-items: center; }
   .q-text, .review-item .qt { font-size: 12pt; }
   @page { size: A4; margin: 14mm 13mm; }
+}
+
+/* طباعة تفاصيل مترشح (فضاء المشرف) */
+@media print {
+  body.printing-detail main,
+  body.printing-detail .site-head,
+  body.printing-detail .site-foot,
+  body.printing-detail .admin-nav { display: none !important; }
+  body.printing-detail .modal-backdrop {
+    position: static !important;
+    background: none !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  body.printing-detail .modal {
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    width: 100% !important;
+  }
+  body.printing-detail .modal-close,
+  body.printing-detail .btn-row,
+  body.printing-detail #grade-form { display: none !important; }
 }
