@@ -2249,7 +2249,7 @@ async function closeSession() {
   if (!launch || launch.status === "closed") return;
   const msg = launch.status === "waiting"
     ? "إلغاء الجلسة دون إطلاق؟ يُقفل الباب ولا يدخل أحد في هذه الجلسة."
-    : "إنهاء الاختبار وقفل باب الترشح نهائيًا لهذه الجلسة؟\nالمترشحون المنطلقون يكملون نسختهم ثم تظهر نتائجهم.";
+    : "إنهاء الاختبار وقفل باب الترشح نهائيًا لهذه الجلسة؟\nستظهر النتائج والتصحيح للمترشحين بعد هذا الإجراء.\nالمترشحون المنطلقون يكملون نسختهم ثم تُحفظ نتائجهم.";
   if (!confirm(msg)) return;
   try {
     await Store.saveLaunch({ ...launch, status: "closed", closedAt: new Date().toISOString() });

@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=10">
+<link rel="stylesheet" href="css/style.css?v=11">
 </head>
 <body>
 
@@ -90,7 +90,7 @@
             <li><span class="k">٢</span><span>سؤالا تعبير (من سطرين إلى أربعة أسطر)، لكل سؤال <b>٣ دقائق</b>.</span></li>
             <li><span class="k">٣</span><span>ترتيب الأسئلة وترتيب الاختيارات <b>عشوائي لكل مترشح</b>.</span></li>
             <li><span class="k">٤</span><span>المجموع على <b>١٠٠</b>، والتنقيط موزّع بحسب أهمّية المفهوم.</span></li>
-            <li><span class="k">٥</span><span>تظهر لك النتيجة مع تصحيح كل جواب فور الانتهاء، ويمكنك استخراجها <b>PDF</b>.</span></li>
+            <li><span class="k">٥</span><span>تُحفظ نسختك عند الإنهاء، وتظهر النتيجة مع تصحيح كل جواب بعد أن يضغط المشرف على <b>«إنهاء الاختبار»</b>، ويمكنك استخراجها <b>PDF</b>.</span></li>
           </ul>
         </div>
 
@@ -189,6 +189,34 @@
     </p>
   </section>
 
+  <!-- ==================== عرض انتظار النتيجة بعد إنهاء النسخة ==================== -->
+  <section id="view-finished" hidden aria-live="polite">
+    <div class="wait-shell">
+      <div class="card card-pad-lg wait-card">
+        <div class="wait-orb" aria-hidden="true"><span></span></div>
+        <p class="eyebrow center">تمّ إنهاء الاختبار</p>
+        <h2 class="center" style="margin-bottom:6px" id="finish-title">تمّ حفظ نسختك بنجاح</h2>
+        <p class="muted center" style="margin-bottom:18px" id="finish-msg">
+          ستظهر النتيجة والتصحيح بعد أن يضغط المشرف على «إنهاء الاختبار».
+        </p>
+        <div class="wait-status" role="status">
+          <span class="pulse-dot" aria-hidden="true"></span>
+          <span id="finish-status-text">في انتظار إنهاء الجلسة من المشرف…</span>
+        </div>
+        <div class="wait-meta">
+          <div><span class="k">المترشح</span><span class="v" id="finish-name">—</span></div>
+          <div><span class="k">الجلسة</span><span class="v" id="finish-session">—</span></div>
+          <div><span class="k">وقت الإنهاء</span><span class="v" id="finish-at">—</span></div>
+          <div><span class="k">مدة الانتظار</span><span class="v" id="finish-elapsed">00:00</span></div>
+        </div>
+        <div id="finish-save" class="callout callout-warn" hidden style="margin-top:14px"></div>
+        <p class="hint center" style="margin-top:16px">
+          لا تغلق هذه الصفحة؛ ستُعرض النتيجة تلقائيًا بمجرد إنهاء المشرف للجلسة.
+        </p>
+      </div>
+    </div>
+  </section>
+
   <!-- ==================== عرض النتيجة ==================== -->
   <section id="view-result" hidden>
     <div class="card card-pad-lg" id="result-card">
@@ -239,9 +267,9 @@
   </div>
 </footer>
 
-<script src="js/bank.js?v=10"></script>
-<script src="js/config.js?v=10"></script>
-<script src="js/core.js?v=10"></script>
-<script src="js/exam.js?v=10"></script>
+<script src="js/bank.js?v=11"></script>
+<script src="js/config.js?v=11"></script>
+<script src="js/core.js?v=11"></script>
+<script src="js/exam.js?v=11"></script>
 </body>
 </html>

@@ -41,6 +41,13 @@ const S = {
   progressSaving: false, /* منع تراكب طلبات الحفظ */
   lastProgressAt: 0,
   lastCloudSaveAt: 0,
+  resultUnlocked: false, /* هل سُمح بعرض النتيجة بعد إنهاء الجلسة؟ */
+  finishedSaved: false,  /* هل حُفظت النسخة النهائية؟ */
+  finishedRec: null,     /* النسخة النهائية بانتظار إنهاء الجلسة */
+  finishedGraded: null,
+  unlockPoll: null,
+  finishClock: null,
+  finishSince: 0,
   waitSince: 0,
   countPoll: null
 };
@@ -125,7 +132,7 @@ function renderIntroSpecs() {
   if (open) items.push(`أسئلة التعبير: <b>${open}</b>، لكل سؤال <b>${arabicDuration(openSec)}</b>.`);
   items.push("ترتيب الأسئلة وترتيب الاختيارات <b>عشوائي لكل مترشح</b>.");
   items.push(`المجموع على <b>${totalPoints}</b>، والتنقيط موزّع بحسب أهمّية المفهوم.`);
-  items.push("تظهر لك النتيجة مع تصحيح كل جواب فور الانتهاء، ويمكنك استخراجها <b>PDF</b>.");
+  items.push("تُحفظ نسختك عند الإنهاء، وتظهر النتيجة مع تصحيح كل جواب بعد أن يضغط المشرف على <b>«إنهاء الاختبار»</b>، ويمكنك استخراجها <b>PDF</b>.");
   specs.innerHTML = items.map((t, i) =>
     `<li><span class="k">${numerals[i] || (i + 1)}</span><span>${t}</span></li>`).join("");
 }
@@ -402,8 +409,12 @@ function readProgress() {
 async function finishExam() {
   if (S.finished || S.persisting) return;
   S.persisting = true;
+  S.resultUnlocked = false;
+  S.finishedSaved = false;
   stopTick();
   stopSessionPoll();
+  stopUnlockPoll();
+  stopFinishClock();
   stopProgressTimer();
   captureOpenAnswer();
 
@@ -467,11 +478,13 @@ async function finishExam() {
   };
 
   S.submission = rec;
+  S.finishedRec = rec;
+  S.finishedGraded = graded;
+  S.finishSince = Date.now();
 
-  /* نعرض النتيجة أولًا (تجربة أفضل)، لكن أي خطأ في العرض لا يمنع الحفظ */
-  let shown = true;
-  try { showResult(rec, graded); }
-  catch (e) { shown = false; console.error("showResult failed", e); }
+  /* لا تُعرض النتيجة الآن: نُظهر شاشة انتظار إلى أن يُنهي المشرف الجلسة. */
+  try { showFinishWaiting(rec, { saving: true }); }
+  catch (e) { console.error("showFinishWaiting failed", e); }
 
   let saved = false;
   for (let attempt = 0; attempt < 3 && !saved; attempt++) {
@@ -495,39 +508,148 @@ async function finishExam() {
   if (saved) {
     rememberLocalRow(rec);
     S.finished = true;
+    S.finishedSaved = true;
     clearProgress();
     markDeviceFinished(S.launch ? S.launch.id : null);
     setResultSaveNote(true);
+    markFinishSaved();
+    startUnlockPoll();
+    checkResultUnlock();
   } else {
+    S.finished = false;
     toast("لم تُسجَّل النسخة بعد. لا تغلق الصفحة؛ أعد المحاولة.", true);
     setResultSaveNote(false);
     try { autosave(); } catch (e) { /* ignore */ }
-  }
-
-  if (!shown) {
-    try { showResult(rec, graded); } catch (e) { console.error("showResult retry failed", e); }
   }
   S.persisting = false;
 }
 
 function setResultSaveNote(ok) {
-  const el = $("#res-save");
-  if (!el) return;
-  if (ok) { el.hidden = true; el.innerHTML = ""; return; }
-  el.hidden = false;
-  el.className = "callout callout-warn";
-  el.innerHTML = "<b>تنبيه:</b> لم تُسجَّل نسختك لدى المشرف بعد. تحقّق من الاتصال ثم " +
-    "<button type=\"button\" class=\"btn btn-sm\" id=\"btn-retry-save\">أعد المحاولة</button>";
-  const b = $("#btn-retry-save");
-  if (b) b.addEventListener("click", () => { S.finished = false; finishExam(); });
+  const hosts = [$("#res-save"), $("#finish-save")].filter(Boolean);
+  hosts.forEach(el => {
+    if (ok) { el.hidden = true; el.innerHTML = ""; return; }
+    el.hidden = false;
+    el.className = "callout callout-warn";
+    el.innerHTML = "<b>تنبيه:</b> لم تُسجَّل نسختك لدى المشرف بعد. تحقّق من الاتصال ثم " +
+      "<button type=\"button\" class=\"btn btn-sm js-retry-save\">أعد المحاولة</button>";
+  });
+  $$(".js-retry-save").forEach(b => b.addEventListener("click", () => {
+    S.finished = false;
+    finishExam();
+  }));
+}
+
+/* ------------------------------------------------ انتظار إنهاء الجلسة */
+function stopUnlockPoll() {
+  if (S.unlockPoll) { clearInterval(S.unlockPoll); S.unlockPoll = null; }
+}
+function stopFinishClock() {
+  if (S.finishClock) { clearInterval(S.finishClock); S.finishClock = null; }
+}
+function updateFinishElapsed() {
+  const el = $("#finish-elapsed");
+  if (!el || !S.finishSince) return;
+  el.textContent = fmtClock(Math.max(0, Math.floor((Date.now() - S.finishSince) / 1000)));
+}
+function markFinishSaved() {
+  const title = $("#finish-title");
+  const msg = $("#finish-msg");
+  const status = $("#finish-status-text");
+  if (title) title.textContent = "تمّ حفظ نسختك بنجاح";
+  if (msg) msg.textContent = "ستظهر النتيجة والتصحيح بعد أن يضغط المشرف على «إنهاء الاختبار».";
+  if (status) status.textContent = "في انتظار إنهاء الجلسة من المشرف…";
+}
+function showFinishWaiting(rec, opts) {
+  const row = rec || S.finishedRec || S.submission || {};
+  S.finishedRec = row;
+  const name = `${row.candidate_first || (S.candidate && S.candidate.first) || ""} ${row.candidate_last || (S.candidate && S.candidate.last) || ""}`.trim();
+  const nameEl = $("#finish-name");
+  if (nameEl) nameEl.textContent = name || "—";
+  const sessionEl = $("#finish-session");
+  if (sessionEl) sessionEl.textContent = (S.launch && S.launch.label) || "—";
+  const atEl = $("#finish-at");
+  if (atEl) atEl.textContent = row.finished_at ? fmtDate(row.finished_at) : "—";
+  const since = row.finished_at ? new Date(row.finished_at).getTime() : 0;
+  if (since && !isNaN(since)) S.finishSince = since;
+  else if (!S.finishSince) S.finishSince = Date.now();
+  const title = $("#finish-title");
+  const msg = $("#finish-msg");
+  const status = $("#finish-status-text");
+  if (opts && opts.saving) {
+    if (title) title.textContent = "جارٍ حفظ نسختك…";
+    if (msg) msg.textContent = "لا تغلق الصفحة حتى يكتمل الحفظ.";
+    if (status) status.textContent = "جارٍ إرسال النسخة إلى المشرف…";
+  } else if (S.finishedSaved) {
+    markFinishSaved();
+  }
+  setMainView("#view-finished");
+  updateFinishElapsed();
+  stopFinishClock();
+  S.finishClock = setInterval(updateFinishElapsed, 1000);
+  startUnlockPoll();
+}
+
+function startUnlockPoll() {
+  stopUnlockPoll();
+  checkResultUnlock();
+  S.unlockPoll = setInterval(checkResultUnlock, 3500);
+}
+
+async function checkResultUnlock() {
+  if (S.resultUnlocked || !S.finishedSaved || !S.finishedRec) return false;
+  let launch = null;
+  try { launch = await Store.getLaunch(); }
+  catch (e) {
+    const status = $("#finish-status-text");
+    if (status) status.textContent = "تعذّر التحقق من حالة الجلسة — تُعاد المحاولة تلقائيًا…";
+    return false;
+  }
+  const ended = !launch || !S.launch || launch.id !== S.launch.id || launch.status === "closed";
+  if (!ended) return false;
+  await revealResult();
+  return true;
+}
+
+async function revealResult() {
+  if (S.resultUnlocked) return;
+  S.resultUnlocked = true;
+  stopUnlockPoll();
+  stopFinishClock();
+  let row = S.finishedRec;
+  const id = row && (row.id || S.waitingId);
+  if (id) {
+    try {
+      const fresh = await Store.getSubmission(id);
+      if (fresh && fresh.finished_at) row = fresh;
+    } catch (e) { /* نعرض النسخة المحلية */ }
+  }
+  if (!row) return;
+  S.finishedRec = row;
+  showResultFromRow(row);
 }
 
 /* ------------------------------------------------------------------ résultat */
+function canRevealResult(row) {
+  if (S.resultUnlocked) return true;
+  if (!S.launch) return true;
+  if (S.launch.status === "closed") return true;
+  if (row && row.session_id && row.session_id !== S.launch.id) return true;
+  return false;
+}
+
 function showResult(rec, graded) {
+  if (!canRevealResult(rec)) {
+    S.finishedRec = rec;
+    S.finishedGraded = graded;
+    showFinishWaiting(rec);
+    return;
+  }
   $("#view-intro").hidden = true;
   $("#view-exam").hidden = true;
   const waitView = $("#view-wait");
   if (waitView) waitView.hidden = true;
+  const finishView = $("#view-finished");
+  if (finishView) finishView.hidden = true;
   const view = $("#view-result");
   view.hidden = false;
 
@@ -781,7 +903,7 @@ async function findDuplicate(sessionId, candidate) {
 }
 
 function setMainView(name) {
-  ["#view-intro", "#view-wait", "#view-exam", "#view-result", "#view-error"].forEach(s => {
+  ["#view-intro", "#view-wait", "#view-exam", "#view-finished", "#view-result", "#view-error"].forEach(s => {
     const el = $(s);
     if (el) el.hidden = (s !== name);
   });
@@ -804,7 +926,7 @@ async function checkSessionEnded() {
   const ended = !l || !S.launch || l.id !== S.launch.id || l.status === "closed";
   if (!ended) return false;
   stopSessionPoll();
-  toast("انتهت الجلسة — سيتم عرض النتيجة", true);
+  toast("انتهت الجلسة — يتم حفظ نسختك نهائيًا", true);
   await finishExam();
   return true;
 }
@@ -994,6 +1116,7 @@ function showRepeatBox(row, keepForm) {
   const st = row.status === "validated" ? "ثبّت المشرف نقطة التعبير" : "بانتظار تثبيت المشرف لنقطة التعبير";
   const placeTxt = placeLabel(row.place_code, row.place_name);
   const when = S.launch ? "في هذه الجلسة" : "في آخر جلسة";
+  const currentOpen = S.launch && row.session_id === S.launch.id && S.launch.status !== "closed";
   const head = box.querySelector("p b");
   if (head) head.textContent = `لقد أديت الاختبار من هذا الجهاز ${when}.`;
   let totalMax = 100;
@@ -1003,13 +1126,34 @@ function showRepeatBox(row, keepForm) {
     const m = snap.reduce((a, q) => a + Number(q.points || 0), 0);
     if (m > 0) totalMax = m;
   } catch (e) { /* garder 100 */ }
-  $("#repeat-meta").textContent =
-    `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}النقطة: ${Math.round(Number(row.final_score || 0) * 10) / 10}/${totalMax} (${pct}%) · ${st} · ${fmtDate(row.finished_at)}`;
+  if (currentOpen) {
+    $("#repeat-meta").textContent =
+      `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}تمّ إنهاء نسختك · النتيجة تظهر بعد إنهاء المشرف للجلسة.`;
+  } else {
+    $("#repeat-meta").textContent =
+      `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}النقطة: ${Math.round(Number(row.final_score || 0) * 10) / 10}/${totalMax} (${pct}%) · ${st} · ${fmtDate(row.finished_at)}`;
+  }
+  const showBtn = $("#btn-show-previous");
+  if (showBtn) showBtn.textContent = currentOpen ? "متابعة حالة الجلسة" : "عرض نتيجتي وتصحيحها";
   box.hidden = false;
 }
 
 /* يعيد بناء عرض النتيجة من النسخة المحفوظة على الجهاز */
 function showPreviousResult(row) {
+  if (!row) return;
+  const currentOpen = S.launch && row.session_id === S.launch.id && S.launch.status !== "closed";
+  if (currentOpen) {
+    S.finished = true;
+    S.finishedSaved = true;
+    S.finishedRec = row;
+    S.finishSince = row.finished_at ? new Date(row.finished_at).getTime() : Date.now();
+    showFinishWaiting(row);
+    return;
+  }
+  showResultFromRow(row);
+}
+
+function showResultFromRow(row) {
   let data = {};
   if (typeof row.answers === "object" && row.answers) data = row.answers;
   else { try { data = JSON.parse(row.answers || "{}") || {}; } catch (e) { data = {}; } }
@@ -1059,6 +1203,8 @@ function showPreviousResult(row) {
 function showError(msg) {
   $("#view-intro").hidden = true;
   $("#view-exam").hidden = true;
+  const finishView = $("#view-finished");
+  if (finishView) finishView.hidden = true;
   $("#view-result").hidden = true;
   $("#view-error").hidden = false;
   $("#err-msg").textContent = msg;
@@ -1133,6 +1279,12 @@ async function startExam(candidate, opts) {
     S.finished = false;
     S.persisting = false;
     S.examStarted = true;
+    S.resultUnlocked = false;
+    S.finishedSaved = false;
+    S.finishedRec = null;
+    S.finishedGraded = null;
+    stopUnlockPoll();
+    stopFinishClock();
 
     stopWaitPoll();
     stopWaitClock();
@@ -1248,9 +1400,17 @@ async function handleJoin(c) {
 }
 
 async function boot() {
+  let launchNow = null;
   try {
-    S.settings = await Store.getSettings();
-    S.bank = await Store.getBank();
+    /* نجلب الإعدادات والبنك وحالة الجلسة معًا لتقليل زمن الإقلاع */
+    const [settings, bank, launch] = await Promise.all([
+      Store.getSettings(),
+      Store.getBank(),
+      Store.getLaunch().catch(() => null)
+    ]);
+    S.settings = settings;
+    S.bank = bank;
+    launchNow = launch;
   } catch (e) {
     showError("تعذّر تحميل بنك الأسئلة. تحقّق من الاتصال ثمّ أعد تحميل الصفحة.");
     return;
@@ -1289,9 +1449,7 @@ async function boot() {
     if (intro) intro.insertBefore(warn, intro.firstChild);
   }
 
-  /* حالة جلسة الإطلاق الحالية */
-  let launchNow = null;
-  try { launchNow = await Store.getLaunch(); } catch (e) { launchNow = null; }
+  /* حالة جلسة الإطلاق الحالية (جُلبت مع الإعدادات أعلاه) */
   S.launch = launchNow;
   let prev = null;
   let progressNow = readProgress();
@@ -1302,15 +1460,24 @@ async function boot() {
   }
   if (launchNow) {
     prev = findFinishedForSession(launchNow.id);
-    if (!prev && launchNow.status === "closed") {
-      prev = await findMyResultCloud(launchNow.id);
+    if (launchNow.status === "closed") {
+      const cloudPrev = await findMyResultCloud(launchNow.id);
+      if (cloudPrev) prev = cloudPrev;
     }
     if (prev) {
-      showRepeatBox(prev);
-      /* الجلسة انتهت والنتيجة محفوظة: لا معنى لعرض «محاولة غير مكتملة». */
+      S.submission = prev;
+      S.finishedRec = prev;
+      S.finishedSaved = true;
+      S.finished = true;
+      S.finishSince = prev.finished_at ? new Date(prev.finished_at).getTime() : Date.now();
+      clearProgress();
+      try { localStorage.removeItem(KEYS.wait); } catch (e) { /* ignore */ }
       if (launchNow.status === "closed") {
-        clearProgress();
-        try { localStorage.removeItem(KEYS.wait); } catch (e) { /* ignore */ }
+        /* الجلسة منتهية: النتيجة متاحة فورًا. */
+        showPreviousResult(prev);
+      } else {
+        /* النسخة محفوظة لكن المشرف لم يُنهِ الجلسة بعد: لا نكشف النتيجة. */
+        showFinishWaiting(prev);
       }
     }
     else if (!progressNow) {
@@ -1398,7 +1565,8 @@ async function boot() {
     const examVisible = !$("#view-exam").hidden && !S.finished;
     const waitVisible = !$("#view-wait").hidden;
     const resultUnsaved = !$("#view-result").hidden && !S.finished;
-    if (examVisible || waitVisible || resultUnsaved || S.persisting) {
+    const finishUnsaved = !$("#view-finished").hidden && !S.finishedSaved;
+    if (examVisible || waitVisible || resultUnsaved || finishUnsaved || S.persisting) {
       ev.preventDefault();
       ev.returnValue = "";
     }
@@ -1446,6 +1614,12 @@ function resumeExam(p) {
   S.finished = false;
   S.persisting = false;
   S.examStarted = true;
+  S.resultUnlocked = false;
+  S.finishedSaved = false;
+  S.finishedRec = null;
+  S.finishedGraded = null;
+  stopUnlockPoll();
+  stopFinishClock();
   stopWaitPoll();
   stopWaitClock();
 
@@ -1477,6 +1651,8 @@ function wakeRefresh() {
   }
   const examView = $("#view-exam");
   if (examView && !examView.hidden && !S.finished) checkSessionEnded();
+  const finishView = $("#view-finished");
+  if (finishView && !finishView.hidden) checkResultUnlock();
 }
 
 document.addEventListener("visibilitychange", () => {
@@ -1503,7 +1679,8 @@ window.addEventListener("offline", () => {
 });
 
 window.addEventListener("online", () => {
-  if (!S.examStarted || S.finished) return;
+  if (S.finished) { if (!S.resultUnlocked) checkResultUnlock(); return; }
+  if (!S.examStarted) return;
   S.lastProgressAt = 0;
   saveProgressNow(true);
   checkSessionEnded();
