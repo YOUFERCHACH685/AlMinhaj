@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=13">
+<link rel="stylesheet" href="css/style.css?v=14">
 </head>
 <body>
 
@@ -63,6 +63,16 @@
               <option value="">اختر المكان…</option>
             </select>
           </label>
+          <label class="field" id="f-code-field">
+            <span>رمز المترشح <span class="req" aria-hidden="true">*</span></span>
+            <input type="text" id="f-code" name="code" dir="ltr" autocomplete="off"
+                   inputmode="latin" autocapitalize="characters" spellcheck="false"
+                   placeholder="مثال: AB7K9QX2" maxlength="20">
+            <span class="hint" style="display:block;margin-top:6px">
+              رمز يوزّعه عليك المشرف. به تُحفظ هويتك على كل الأجهزة: لو مسحت بيانات
+              المتصفّح أو استعملت هاتفًا آخر، أدخل الرمز نفسه لتجد نسختك.
+            </span>
+          </label>
           <p id="form-err" class="err" role="alert"></p>
           <button type="submit" class="btn btn-lg btn-block" id="btn-start">دخول الاختبار</button>
         </form>
@@ -78,7 +88,7 @@
 
         <p class="hint" style="margin-top:14px" id="start-hint">
           بعد ضغطك على «دخول الاختبار» تنتظر حتى يُطلق المشرف الاختبار، ثم يبدأ العدّ الزمني مع بقية المترشحين.
-          لا يمكن لنفس الاسم أو نفس الجهاز الترشح أكثر من مرة في الجلسة الواحدة.
+          لا يمكن لنفس الرمز أو نفس الاسم أو نفس الجهاز الترشح أكثر من مرة في الجلسة الواحدة.
         </p>
       </div>
 
@@ -238,6 +248,11 @@
 
       <hr class="divider">
 
+      <div class="callout callout-warn" id="res-pending" hidden style="margin-bottom:16px">
+        <b>النتيجة الرسمية لم تُنشر بعد.</b> يُصحّح المشرف النسخة وينشر النقطة المعتمدة،
+        ولا يمكن لأي طرف آخر أن يكتب نقطة في نسختك.
+      </div>
+
       <div class="rule-box" id="res-note" style="margin-bottom:16px"></div>
       <div id="res-save" class="callout callout-warn" hidden style="margin-bottom:16px"></div>
 
@@ -267,9 +282,9 @@
   </div>
 </footer>
 
-<script src="js/bank.js?v=13"></script>
-<script src="js/config.js?v=13"></script>
-<script src="js/core.js?v=13"></script>
-<script src="js/exam.js?v=13"></script>
+<script src="js/bank.js?v=14"></script>
+<script src="js/config.js?v=14"></script>
+<script src="js/core.js?v=14"></script>
+<script src="js/exam.js?v=14"></script>
 </body>
 </html>

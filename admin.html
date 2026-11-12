@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=13">
+<link rel="stylesheet" href="css/style.css?v=14">
 </head>
 <body>
 
@@ -152,6 +152,29 @@
           عند إغلاق الجلسة يُصحَّح تلقائيًا كل من لم يُنهِ نسخته اعتمادًا على آخر تقدّم محفوظ.
         </p>
         <div id="live-list" class="waiting-list live-list"></div>
+      </div>
+
+      <div class="card" style="margin-top:18px">
+        <div class="card-head">
+          <h3 style="margin:0">أكواد المترشحين</h3>
+          <span class="badge badge-neutral" id="codes-badge">0</span>
+        </div>
+        <p class="small muted">
+          كل مترشح يستعمل <b>رمزًا سريًا</b> هو بيانات دخوله في Firebase: به تبقى نسخته محفوظة
+          على كل الأجهزة (مسح بيانات المتصفّح أو تغيير الهاتف لا يُفقده إجازته)، ولا يستطيع
+          غيره تعديل نسخته. وزّع الأكواد على المترشحين قبل فتح الجلسة.
+          <br>القائمة تُحفظ في هذا المتصفّح فقط ولا تُرسل إلى الخادم.
+        </p>
+        <div class="btn-row" style="align-items:flex-end">
+          <label class="field" style="max-width:130px;margin:0">
+            <span>عدد الأكواد</span>
+            <input type="number" id="codes-count" min="1" max="200" step="1" value="30">
+          </label>
+          <button class="btn" type="button" id="btn-codes-gen">توليد أكواد</button>
+          <button class="btn btn-ghost" type="button" id="btn-codes-copy">نسخ القائمة</button>
+          <button class="btn btn-ghost" type="button" id="btn-codes-print">طباعة القائمة</button>
+        </div>
+        <div id="codes-list" style="margin-top:12px"></div>
       </div>
 
       <div class="card" style="margin-top:18px">
@@ -412,12 +435,12 @@
   </div>
 </footer>
 
-<script src="js/bank.js?v=13"></script>
-<script src="js/config.js?v=13"></script>
-<script src="js/core.js?v=13"></script>
+<script src="js/bank.js?v=14"></script>
+<script src="js/config.js?v=14"></script>
+<script src="js/core.js?v=14"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="js/word.js?v=13"></script>
-<script src="js/admin.js?v=13"></script>
+<script src="js/word.js?v=14"></script>
+<script src="js/admin.js?v=14"></script>
 </body>
 </html>

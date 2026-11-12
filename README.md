@@ -27,7 +27,7 @@
 
 **المترشح (`index.html`)**
 
-1. يُدخل **الاسم العائلي + الاسم الشخصي** ويختار **المكان** من القائمة (1.1 بني شيكر … 4.2 بوعرورو) ← «دخول الاختبار».
+1. يُدخل **رمز المترشح** (يوزّعه المشرف) + **الاسم العائلي + الاسم الشخصي** ويختار **المكان** من القائمة (1.1 بني شيكر … 4.2 بوعرورو) ← «دخول الاختبار». الرمز هو حسابه في Firebase: به يجد نسخته من أي جهاز.
 2. إن لم يُطلق المشرف الاختبار بعد، يُحتجز في **قاعة الانتظار** (مع مدة الانتظار وعدد المنتظرين)، ويبدأ الاختبار **تلقائيًا** لحظة الإطلاق — لا حاجة لأي ضغطة.
 3. ينتهي ← النتيجة فورية مع **تصحيح مفصّل لكل سؤال** (جوابك / الجواب الصحيح / التوضيح / سلّم التعبير).
 4. يضغط **«استخراج النتيجة PDF»** ثم في نافذة الطباعة يختار **«حفظ كـ PDF»** ويحفظها في هاتفه — الوثيقة A4 تتضمن النتيجة والتصحيح كاملًا.
@@ -93,14 +93,15 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
 
 ### تأمين قاعدة Firebase (خطوات التشغيل)
 
-النسخة الحالية تعمل بمصادقة حقيقية على مستويين:
+تعمل هذه النسخة بثلاثة أدوار مميّزة، ولكل دور صلاحية مختلفة تمامًا:
 
-- **المترشح**: تسجيل دخول مجهول تلقائي (Anonymous) عند تعبئة `firebaseApiKey` في `js/config.js`. تُحفظ هويته في `localStorage` فيبقى معرّفه (`uid`) ثابتًا على جهازه، وتُنسب كل نسخة يملكها عبر الحقل `owner`. وهذه الهوية مربوطة بمخزن المتصفّح: مسح بيانات المتصفّح أو استعمال جهاز آخر يُنشئ هوية جديدة، والمترشح يُكمل الاختبار من الجهاز نفسه.
-- **المشرف**: تسجيل دخول ببريد إلكتروني وكلمة مرور (Email/Password) من حساب Firebase معتمد. لا وجود لأي رمز ثابت في الشيفرة، وجلسة المشرف معزولة في `sessionStorage` (تنتهي بإغلاق التبويب).
+- **المشرف**: تسجيل دخول ببريد إلكتروني وكلمة مرور (Firebase Email/Password) من حساب معتمد. لا وجود لأي رمز ثابت في الشيفرة، وجلسة المشرف معزولة في `sessionStorage`.
+- **المترشح**: حساب Firebase مشتقّ من **«رمز المترشح»** الذي يوزّعه المشرف. الرمز هو بيانات الدخول نفسها: به يبقى معرّف المترشح (`uid`) واحدًا على كل الأجهزة، فلا يفقد نسخته بمسح بيانات المتصفّح ولا بتغيير الهاتف.
+- **القراءة**: لكل من هو داخل التطبيق (`auth != null`).
 
 لتشغيل ذلك:
 
-1. Firebase Console → **Authentication** → **Sign-in method** → فعّل **Anonymous** و**Email/Password**.
+1. Firebase Console → **Authentication** → **Sign-in method** → فعّل **Email/Password** (وAnonymous اختياريًا).
 2. Project settings → General → انسخ **Web API key** وضعه في `firebaseApiKey` داخل `js/config.js`.
 3. Authentication → **Users** → **Add user**: أنشئ حساب المشرف (بريد + كلمة مرور مؤقتة)، ثم انسخ **UID** وضعه في `adminUid` داخل `js/config.js` (وإن غيّرت البريد فعدّل `adminEmail` أيضًا).
 4. في **Realtime Database → Rules** الصق محتوى `firebase-rules.json` ثم **Publish**:
@@ -114,46 +115,109 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
          },
          "submissions": {
            "$id": {
-             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (data.exists() && data.child('owner').val() === auth.uid) || (!data.exists() && newData.child('owner').val() === auth.uid))"
+             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && newData.child('status').val() in ['waiting', 'submitted']))",
+             "owner": {
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || newData.val() === auth.uid)"
+             },
+             "answers": {
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val()))"
+             },
+             "progress": {
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val()))"
+             },
+             "status": {
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('status').val() in ['waiting', 'submitted']))"
+             },
+             "final_score": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "percent": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "mcq_score": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "open_score": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "official": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "official_at": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "graded_by": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "graded_note": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             }
            }
          },
          "summaries": {
            "$id": {
-             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (data.exists() && data.child('owner').val() === auth.uid) || (!data.exists() && newData.child('owner').val() === auth.uid))"
+             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && newData.child('status').val() in ['waiting', 'submitted']))",
+             "owner": {
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || newData.val() === auth.uid)"
+             },
+             "status": {
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('status').val() in ['waiting', 'submitted']))"
+             },
+             "final_score": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "percent": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "mcq_score": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "open_score": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "official": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "official_at": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "graded_by": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             },
+             "graded_note": {
+               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+             }
            }
          }
        }
      }
    }
    ```
-   ما تفعله هذه القواعد:
-   - **القراءة**: لكل من هو داخل التطبيق (`auth != null`).
-   - **الكتابة في `config`** (الإعدادات، بنك الأسئلة، الجلسات، الإطلاق): **لحساب المشرف وحده**.
-   - **الكتابة في `submissions` و`summaries`**: للمشرف، أو **لصاحب النسخة** (`owner`) فقط. لا يستطيع مترشح تعديل نسخة زميله ولا حذفها، ولا «اختطاف» نسخة بتغيير `owner` لأن التعديل يُقارَن بالمالك الحالي لا بالجديد.
+   ما تفعله هذه القواعد بالضبط:
+   - **`config`** (الإعدادات، بنك الأسئلة، الجلسات، الإطلاق): الكتابة **لحساب المشرف وحده**.
+   - **`submissions` و`summaries`**: المشرف يكتب أي شيء؛ المترشح يكتب **نسخته فقط** (`owner == auth.uid`)، ولا يغيّر `owner`، ولا يكتب بعد نشر التصحيح الرسمي.
+   - **النقاط** (`final_score`, `percent`, `mcq_score`, `open_score`) وحقول التصحيح (`official`, `official_at`, `graded_by`, `graded_note`): **كتابة المشرف وحده**. لا يستطيع المترشح كتابة أي نقطة في نسخته ولو من أدوات المطوّر — تُرفض المحاولة بـ 401 من Firebase.
 5. سجّل الدخول من `admin.html` ببريد الحساب وكلمة المرور، ثم غيّر كلمة المرور المؤقتة من **«الإعدادات» ← «أمان حساب المشرف»** (التغيير يُطبَّق في Firebase فورًا).
-6. أعد تحميل الصفحة بقوة (Ctrl+F5) وتأكد أن المزامنة تعمل. أي طلب بدون توكن يُرفض بـ 401/403.
+6. من **«الجلسة والإطلاق» ← «أكواد المترشحين»** ولّد أكوادًا (مثلًا 30) واطبعها أو انسخها، ووزّع رمزًا واحدًا لكل مترشح.
+7. أعد تحميل الصفحة بقوة (Ctrl+F5) وتأكد أن المزامنة تعمل. أي طلب بدون توكن يُرفض بـ 401/403.
 
-> **مهم**: لا تنشر القواعد قبل تفعيل Anonymous وضبط المفتاح، وإلا توقف التطبيق عن العمل. وانشر الكود الجديد (الذي يضيف الحقل `owner`) قبل نشر القواعد الجديدة، حتى لا يتعطّل انضمام المترشحين.
+> **مهم**: لا تنشر القواعد قبل تفعيل Email/Password وضبط المفتاح. وانشر الكود الجديد قبل نشر القواعد الجديدة، حتى لا يتعطّل انضمام المترشحين.
 
 سجلات الانتظار تعيش في `submissions` بحالة `waiting` (بدون نقاط) وتتحول عند إنهاء المترشح إلى النسخة المكتملة. النسخ تُحذف حذفًا ناعمًا على مستوى الجلسة (`deleted: true`) حتى تبقى أسماء الجلسات في النتائج والتصدير.
 
 ## الأمان وحدود الحماية (اقرأ هذا)
 
-- **دخول المشرف عبر Firebase**: لا يوجد «رمز دخول» ثابت في الشيفرة ولا في المتصفح. المصادقة (بريد + كلمة مرور) تجري في Firebase، وصلاحيات الكتابة في القاعدة مربوطة بمعرّف الحساب (`uid`) لا بجهاز المشرف. من نسخ الشيفرة لا يستطيع الدخول بدون كلمة المرور.
-- **جلسة المشرف**: تُحفظ في `sessionStorage` (تنتهي بإغلاق التبويب) ومفصولة عن جلسة المترشح المجهولة في `localStorage`. عند انتهاء صلاحية التوكن تُرجَع الواجهة تلقائيًا إلى بوابة الدخول مع رسالة توضيحية.
-- **فصل الصلاحيات**: المترشح يقرأ لكنه لا يكتب إلا نسخه هو؛ المشرف وحده يكتب في الإعدادات والجلسات وبنك الأسئلة.
+- **لا يمكن للمترشح تعديل درجته**: النقاط لا يكتبها المتصفّح إطلاقًا. قواعد Firebase تجعل كتابة `final_score`/`percent`/`mcq_score`/`open_score` من طرف المشرف وحده، حتى لو عدّل المترشح طلباته من أدوات المطوّر.
+- **التصحيح الرسمي**: يُعيد المشرف حساب النقط من **بنك الأسئلة** (المصدر الموثوق) اعتمادًا على أجوبة المترشح، وينشرها في نسخته (`official: true`). بعد ذلك تُقفل نسخته: لا يكتب فيها أحد سوى المشرف.
+- **قبل نشر التصحيح** يرى المترشح «النتيجة قيد التصحيح» فقط — لا تُعرض أي نقطة محسوبة في متصفّحه.
+- **هوية المترشح مرتبطة برمزه لا بمتصفّحه**: الرمز هو بيانات الدخول في Firebase، فالمعرّف واحد على كل الأجهزة. مسح بيانات المتصفّح أو تغيير الهاتف لا يُنشئ هوية جديدة ولا يمنع استئناف النسخة.
+- **أكواد المترشحين**: يوزّعها المشرف من فضاء المشرف، وتُحفظ في متصفّح المشرف فقط (لا تصل إلى الخادم؛ تُحفظ في النسخة **بصمة** مجزّأة `code_hash` فقط).
+- **دخول المشرف عبر Firebase**: لا يوجد «رمز دخول» ثابت في الشيفرة ولا في المتصفح. المصادقة (بريد + كلمة مرور) تجري في Firebase، وصلاحيات الكتابة مربوطة بمعرّف الحساب (`uid`)، وجلسة المشرف تنتهي بإغلاق التبويب.
 - بعد **5 محاولات خاطئة** يُقفل الدخول **10 دقائق** (مفتاح التخزين `manhaj_admin_lock_v1`).
-- **تغيير كلمة المرور**: من «الإعدادات» ← «أمان حساب المشرف» (يتطلب الكلمة الحالية ويحدّث حساب Firebase مباشرة). استعمل كلمة قوية ولا تشاركها. يمكن أيضًا تغييرها من وحدة التحكم: Authentication → Users → الحساب → Reset password.
-- **الصفحات المحمية برمز** (`epreuves.html` و`corrige.html` عبر `js/gate.js`) ما زالت تستعمل الرمز المحلي SHA-256 لأنها صفحات طباعة. الرمز الافتراضي `Azert1234` — غيّره قبل أي استعمال حقيقي (طريقة توليد SHA-256 في نهاية هذا القسم).
-- **للسرية الكاملة**: انشر `admin.html` و`epreuves.html` و`corrige.html` خلف مصادقة على مستوى الاستضافة (مثل Basic Auth)، واحذف صفحات الطباعة من النشر العام إن أردت الاكتفاء بالنسخ المطبوعة.
-- **الحد المتبقي**: التصحيح يتم في المتصفح، فالمترشح الذي يملك أدوات المطوّر يستطيع تعديل درجته هو. منع ذلك يحتاج **Cloud Function** (تصحيح على الخادم) — وهي المرحلة 3.
+- **تغيير كلمة المرور**: من «الإعدادات» ← «أمان حساب المشرف» (يتطلب الكلمة الحالية ويحدّث حساب Firebase مباشرة).
+- **الصفحات المحمية برمز** (`epreuves.html` و`corrige.html` عبر `js/gate.js`) ما زالت تستعمل الرمز المحلي SHA-256 لأنها صفحات طباعة. الرمز الافتراضي `Azert1234` — غيّره قبل أي استعمال حقيقي.
+- **الحد المتبقي**: لا يمكن لأحد أن يُعدّل أجوبة المترشح بعد تسليمها (وهي تُقفل بنشر التصحيح)، لكن من يقدر على استعمال المتصفّح أثناء الاختبار يمكنه أن يُجيب كما يشاء — وهذا حدّ مشترك في كل اختبار إلكتروني دون مراقبة.
 - تُقرأ أسماء المترشحين ودرجاتهم من Firebase. لا تسجل بيانات حقيقية على بيئة غير منشورة.
-
-لتغيير رمز صفحات الطباعة (SHA-256) — ولّد القيمة ثم استبدلها في **الملفين** معًا (`js/admin.js` لم يعد يستعمله، `js/gate.js` ما زال):
-```powershell
-[BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash(
-  [Text.Encoding]::UTF8.GetBytes("الرمز-الجديد"))).Replace("-","").ToLower()
-```
 
 ## استكشاف الأخطاء
 
@@ -180,13 +244,13 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
 
 ## سجل النسخة المدمجة (ماذا تغيّر في الكود)
 
-- `js/core.js`: ‏`deviceId()`, ‏`sha256hex` (SubtleCrypto + مرجع احتياطي), **`PLACE_LIST`** (10 محطات) + `findPlace/placeName/placeLabel`, واجهات `getLaunch/saveLaunch/clearLaunch` و**`getSessions/updateSession/deleteSession`** في Store, مزامنة النسخة المحلية عند PATCH, تطبيع `percent` القديم (0.3 → 33)، وإصلاح صيغة النسبة (كانت تُرجع كسرًا بدل نسبة مئوية).
-- `js/exam.js`: قاعة الانتظار + الاستطلاع (كل 2.5 ث) + انتقال تلقائي للمنتظَر عند الإطلاق + **حقل المكان الإلزامي وترحيله عبر الانتظار/الاختبار/النتيجة/الطباعة/إعادة العرض** + **تعليم بداية الاختبار (`started_at`)** حتى لا تُحذف نسخة من بدأ عند إغلاق الجلسة + منع التكرار (جهاز/اسم) + صناديق «إعادة المحاولة» و«أديتُ من قبل» + توحيد مسار النتيجة المعادة (`showPreviousResult`) + ترقية snapshot ليحمل `explain`. **وصف الاختبار (`renderIntroSpecs` + `arabicDuration`) يُبنى من الإعدادات والبنك ويُحدَّث دوريًا؛ `startExam` صار يقرأ الإعدادات والبنك لحظة البدء؛ عتبة النجاح تُستعمل في تسمية النتيجة؛ وتنظيف `#q-opts` عند الانتقال إلى سؤال تعبير.**
-- `js/admin.js`: تبويب **«الجلسة والإطلاق»** + قائمة انتظار حية (تحديث 4 ث، حذف منتظر) + إنشاء/إطلاق/إنهاء/تنظيف ذكي + **سجل جلسات (تعديل الاسم/حذف مع حماية الجلسة الجارية والبادئين)** + **مرشّحات المكان والجلسة وأعمدة المكان في النتائج والتفاصيل وCSV** + **Excel بخمس أوراق** (منها «حسب المكان») + **دخول Firebase (بريد + كلمة مرور) مع قفل 5/10د** + استبعاد سجلات `waiting` من النتائج/الإحصاء + إعادة تحميل بعد التثبيت (إصلاح بقاء جدول النتائج قديمًا). **لوحة إحصاء جديدة**: مرشّح جلسة، `dashStats/dashBreakdown/dashSessionInfo`، ملخّص جلسات + مجموعات/محطات + قراءة تحليلية، تصدير PDF (طباعة `printing-dash`) وExcel (4 أوراق + مؤشرات) وCSV احتياطي.
+- `js/core.js`: ‏`deviceId()`, ‏`sha256hex` (SubtleCrypto + مرجع احتياطي), **`PLACE_LIST`** (10 محطات) + `findPlace/placeName/placeLabel`, واجهات `getLaunch/saveLaunch/clearLaunch` و**`getSessions/updateSession/deleteSession`** في Store, مزامنة النسخة المحلية عند PATCH, تطبيع `percent` القديم (0.3 → 33)، وإصلاح صيغة النسبة (كانت تُرجع كسرًا بدل نسبة مئوية). **حساب المترشح**: `signInCandidate(code)` ينشئ/يفتح حساب Firebase مشتقًّا من «رمز المترشح» (البريد = بصمة الرمز، كلمة المرور = الرمز) فتكون الهوية واحدة على كل الأجهزة؛ وحالة المصادقة صارت ثلاثية (مجهول/مترشح/مشرف) مع تخزين منفصل لكلٍّ منها.
+- `js/exam.js`: قاعة الانتظار + الاستطلاع (كل 2.5 ث) + انتقال تلقائي للمنتظَر عند الإطلاق + **حقل المكان الإلزامي وترحيله عبر الانتظار/الاختبار/النتيجة/الطباعة/إعادة العرض** + **تعليم بداية الاختبار (`started_at`)** حتى لا تُحذف نسخة من بدأ عند إغلاق الجلسة + منع التكرار (جهاز/اسم) + صناديق «إعادة المحاولة» و«أديتُ من قبل» + توحيد مسار النتيجة المعادة (`showPreviousResult`) + ترقية snapshot ليحمل `explain`. **وصف الاختبار (`renderIntroSpecs` + `arabicDuration`) يُبنى من الإعدادات والبنك ويُحدَّث دوريًا؛ `startExam` صار يقرأ الإعدادات والبنك لحظة البدء؛ عتبة النجاح تُستعمل في تسمية النتيجة؛ وتنظيف `#q-opts` عند الانتقال إلى سؤال تعبير.** **حقل «رمز المترشح»** في التسجيل (يستأنف من أي جهاز)؛ والمترشح لم يعد يرسل أي نقطة إلى الخادم، وتُعرض «النتيجة قيد التصحيح» حتى ينشر المشرف النقطة الرسمية.
+- `js/admin.js`: تبويب **«الجلسة والإطلاق»** + قائمة انتظار حية (تحديث 4 ث، حذف منتظر) + إنشاء/إطلاق/إنهاء/تنظيف ذكي + **سجل جلسات (تعديل الاسم/حذف مع حماية الجلسة الجارية والبادئين)** + **مرشّحات المكان والجلسة وأعمدة المكان في النتائج والتفاصيل وCSV** + **Excel بخمس أوراق** (منها «حسب المكان») + **دخول Firebase (بريد + كلمة مرور) مع قفل 5/10د** + استبعاد سجلات `waiting` من النتائج/الإحصاء + إعادة تحميل بعد التثبيت (إصلاح بقاء جدول النتائج قديمًا). **لوحة إحصاء جديدة**: مرشّح جلسة، `dashStats/dashBreakdown/dashSessionInfo`، ملخّص جلسات + مجموعات/محطات + قراءة تحليلية، تصدير PDF (طباعة `printing-dash`) وExcel (4 أوراق + مؤشرات) وCSV احتياطي. **التصحيح الرسمي** `publishOfficialScores()`: يعيد حساب النقط من بنك الأسئلة وينشرها (`official: true`) فتقفل النسخة؛ **بطاقة «أكواد المترشحين»** لتوليد رموز الدخول وطباعتها؛ وعمود «بصمة الرمز» في النتائج.
 - `js/gate.js`: قفل `epreuves.html` و`corrige.html` برمز المشرف المحلي (SHA-256 + نفس القفل) مع زر «قفل الصفحة» — صفحات الطباعة فقط، أما `admin.html` فصار دخوله عبر Firebase.
 - `js/word.js` (جديد): مولّد Word حقيقي (ZIP+CRC-32 يدوي + XML) — يعمل دون إنترنت، وبدون أي مكتبة.
-- `index.html`: قسم `#view-wait` (قاعة الانتظار) + **حقل `#f-place` الإلزامي** + `#repeat-box` + رابط مترشح لا يحوي «نموذجا»/«التصحيح» + **عناصر وصف ديناميكية (`intro-eyebrow`/`intro-lead`/`intro-specs`) وحذف عبارة «محتوى الأسئلة قابل للتحرير…» من التذييل**.
-- `admin.html`: تبويب «الجلسة والإطلاق» + **«سجل الجلسات»** + مرشّحا المكان/الجلسة + أزرار تصدير Word + **لوحة إحصاء بمرشّح جلسة وترويسة طباعة وأزرار PDF/Excel** + **بوابة دخول Firebase (بريد + كلمة مرور)** + **بطاقة «أمان حساب المشرف» لتغيير كلمة المرور**.
+- `index.html`: قسم `#view-wait` (قاعة الانتظار) + **حقل `#f-place` الإلزامي** + `#repeat-box` + رابط مترشح لا يحوي «نموذجا»/«التصحيح» + **عناصر وصف ديناميكية (`intro-eyebrow`/`intro-lead`/`intro-specs`) وحذف عبارة «محتوى الأسئلة قابل للتحرير…» من التذييل**. + **حقل «رمز المترشح»** + صندوق «النتيجة قيد التصحيح».
+- `admin.html`: تبويب «الجلسة والإطلاق» + **«سجل الجلسات»** + مرشّحا المكان/الجلسة + أزرار تصدير Word + **لوحة إحصاء بمرشّح جلسة وترويسة طباعة وأزرار PDF/Excel** + **بوابة دخول Firebase (بريد + كلمة مرور)** + **بطاقة «أمان حساب المشرف» لتغيير كلمة المرور**. + **بطاقة «أمان حساب المشرف»** لتغيير كلمة المرور + **بطاقة «أكواد المترشحين»**.
 - `epreuves.html`: مدد الأسئلة والمجموع تُقرأ من الإعدادات والبنك (بدل 45 ثانية/3 دقائق/100 نقطة الثابتة).
 - `css/style.css`: أنماط قاعة الانتظار والجلسة/القوائم وسجل الجلسات + **قاعدة `[hidden]` عامة تمنع تداخل الاختيارات مع سؤال التعبير** + أنماط لوحة الإحصاء والجداول المتداخلة وقواعد طباعة A4 للوحة (`body.printing-dash`).
 

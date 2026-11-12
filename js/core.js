@@ -279,14 +279,17 @@ const Store = (() => {
      كل طلب REST يحمل idToken عبر ?auth=... لتطبيق قواعد الأمان. */
   const FIREBASE_API_KEY = String(CFG.firebaseApiKey || "").trim();
   const AUTH_KEY = "manhaj_firebase_auth_v1";          /* anonymous — localStorage */
+  const CAND_AUTH_KEY = "manhaj_firebase_candidate_v1"; /* candidate — localStorage */
   const ADMIN_AUTH_KEY = "manhaj_firebase_admin_v1";   /* admin — sessionStorage */
   const ADMIN_UID = String(CFG.adminUid || "").trim();
+  const CAND_DOMAIN = String(CFG.candidateDomain || "manhaj.local").trim();
   let authToken = "";
   let authRefresh = "";
   let authExpiresAt = 0;
   let authUid = "";
   let authEmail = "";
   let authIsAdmin = false;
+  let authKind = "";           /* anon | candidate | admin */
   let authPromise = null;
 
   function readStoredAuth(storage, key) {
@@ -297,29 +300,34 @@ const Store = (() => {
       return j && j.idToken ? j : null;
     } catch (e) { return null; }
   }
-  function applyAuth(j, isAdmin) {
+  function applyAuth(j, kind) {
     authToken = j.idToken;
     authRefresh = j.refreshToken || "";
     authExpiresAt = Number(j.expiresAt || 0);
     authUid = j.uid || "";
     authEmail = j.email || "";
-    authIsAdmin = !!isAdmin;
+    authIsAdmin = kind === "admin";
+    authKind = kind;
   }
   function loadAuth() {
     if (authToken) return;
     /* جلسة المشرف لها الأولوية، لكنها معزولة في sessionStorage. */
     const admin = readStoredAuth(sessionStorage, ADMIN_AUTH_KEY);
-    if (admin) { applyAuth(admin, true); return; }
+    if (admin) { applyAuth(admin, "admin"); return; }
+    /* حساب المترشح (رمز سري) له أولوية على الجلسة المجهولة. */
+    const cand = readStoredAuth(localStorage, CAND_AUTH_KEY);
+    if (cand) { applyAuth(cand, "candidate"); return; }
     const anon = readStoredAuth(localStorage, AUTH_KEY);
-    if (anon) applyAuth(anon, false);
+    if (anon) applyAuth(anon, "anon");
   }
   function saveAuth() {
     const payload = JSON.stringify({
       idToken: authToken, refreshToken: authRefresh, expiresAt: authExpiresAt,
-      uid: authUid, email: authEmail
+      uid: authUid, email: authEmail, kind: authKind
     });
     try {
-      if (authIsAdmin) sessionStorage.setItem(ADMIN_AUTH_KEY, payload);
+      if (authKind === "admin") sessionStorage.setItem(ADMIN_AUTH_KEY, payload);
+      else if (authKind === "candidate") localStorage.setItem(CAND_AUTH_KEY, payload);
       else localStorage.setItem(AUTH_KEY, payload);
     } catch (e) { /* ignore */ }
   }
@@ -332,14 +340,17 @@ const Store = (() => {
   }
   function clearAuth() {
     const wasAdmin = authIsAdmin;
+    const kind = authKind;
     authToken = "";
     authRefresh = "";
     authExpiresAt = 0;
     authUid = "";
     authEmail = "";
     authIsAdmin = false;
+    authKind = "";
     try {
-      if (wasAdmin) sessionStorage.removeItem(ADMIN_AUTH_KEY);
+      if (kind === "admin" || wasAdmin) sessionStorage.removeItem(ADMIN_AUTH_KEY);
+      else if (kind === "candidate") localStorage.removeItem(CAND_AUTH_KEY);
       else localStorage.removeItem(AUTH_KEY);
     } catch (e) { /* ignore */ }
     if (wasAdmin) notifyAdminAuthRequired();
@@ -408,6 +419,7 @@ const Store = (() => {
       authUid = j.localId || "";
       authEmail = j.email || "";
       authIsAdmin = false;
+      authKind = "anon";
       saveAuth();
       return authToken;
     })();
@@ -445,7 +457,86 @@ const Store = (() => {
     authUid = "";
     authEmail = "";
     authIsAdmin = false;
+    authKind = "";
     try { sessionStorage.removeItem(ADMIN_AUTH_KEY); } catch (e) { /* ignore */ }
+  }
+
+  /* ------------------------------------------------------ حساب المترشح
+     «رمز المترشح» هو بيانات الدخول الحقيقية: منه يُشتق بريد Firebase
+     وكلمة مرور ثابتة، فيصبح للمترشح uid واحد محفوظ على كل الأجهزة.
+     بهذا تفقد الهوية ارتباطها بمخزن المتصفّح: مسح البيانات أو تغيير
+     الجهاز لا يُنشئ هوية جديدة. */
+  function normalizeAccessCode(code) {
+    return String(code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  }
+  async function candidateEmail(code) {
+    const h = await sha256hex(code);
+    return `cand-${h.slice(0, 20)}@${CAND_DOMAIN}`;
+  }
+  function candidatePassword(code) {
+    return `manhaj-${code}`;
+  }
+  /* بصمة الرمز (لا يُخزَّن الرمز نفسه في قاعدة البيانات) */
+  async function accessCodeHash(code) {
+    const h = await sha256hex(normalizeAccessCode(code));
+    return h.slice(0, 12);
+  }
+  async function signInCandidate(code) {
+    const norm = normalizeAccessCode(code);
+    if (norm.length < 6) {
+      const err = new Error("رمز المترشح غير صالح: 6 أحرف على الأقل (A-Z و0-9).");
+      err.code = "BAD_ACCESS_CODE";
+      throw err;
+    }
+    if (!FIREBASE_API_KEY) return { uid: "", email: "", created: false, local: true };
+    const email = await candidateEmail(norm);
+    const password = candidatePassword(norm);
+    const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(FIREBASE_API_KEY)}`;
+    const signUpUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(FIREBASE_API_KEY)}`;
+    let j = null;
+    let created = false;
+    try {
+      j = await authRequest(signInUrl, { email, password, returnSecureToken: true });
+    } catch (e) {
+      const code = String(e.code || "");
+      const notFound = code.indexOf("EMAIL_NOT_FOUND") !== -1 ||
+        code.indexOf("INVALID_LOGIN_CREDENTIALS") !== -1 ||
+        code.indexOf("INVALID_PASSWORD") !== -1 ||
+        code.indexOf("USER_NOT_FOUND") !== -1;
+      if (!notFound) throw e;
+      /* الحساب غير موجود بعد: ننشئه (أول استعمال للرمز). */
+      try {
+        j = await authRequest(signUpUrl, { email, password, returnSecureToken: true });
+        created = true;
+      } catch (e2) {
+        const c2 = String(e2.code || "");
+        if (c2.indexOf("EMAIL_EXISTS") !== -1) {
+          j = await authRequest(signInUrl, { email, password, returnSecureToken: true });
+        } else {
+          throw e2;
+        }
+      }
+    }
+    applyAuth({
+      idToken: j.idToken, refreshToken: j.refreshToken, expiresAt: Date.now() + Number(j.expiresIn || 3600) * 1000,
+      uid: j.localId || "", email: j.email || email
+    }, "candidate");
+    saveAuth();
+    return { uid: authUid, email: authEmail, created, local: false };
+  }
+  function signOutCandidate() {
+    if (authKind !== "candidate") return;
+    try { localStorage.removeItem(CAND_AUTH_KEY); } catch (e) { /* ignore */ }
+    authToken = "";
+    authRefresh = "";
+    authExpiresAt = 0;
+    authUid = "";
+    authEmail = "";
+    authKind = "";
+  }
+  function isCandidateAuth() {
+    loadAuth();
+    return authKind === "candidate" && !!authToken;
   }
 
   function isAdminAuth() {
@@ -650,7 +741,8 @@ const Store = (() => {
   const SUMMARY_FIELDS = [
     "session_id", "device_id", "candidate_first", "candidate_last", "place_code",
     "place_name", "status", "started_at", "finished_at", "form", "mcq_score",
-    "open_score", "final_score", "percent", "joined_at", "progress_at", "owner"
+    "open_score", "final_score", "percent", "joined_at", "progress_at", "owner",
+    "code_hash", "official", "graded_by"
   ];
   function summaryOf(rec) {
     const out = { id: rec.id, updated_at: new Date().toISOString() };
@@ -1111,6 +1203,7 @@ const Store = (() => {
     getBank, saveBank, getSettings, saveSettings, resetBank,
     getLaunch, saveLaunch, clearLaunch, getSessions, updateSession, deleteSession,
     signInAdmin, signOutAdmin, isAdminAuth, getAuthUid, getAuthEmail, changeAdminPassword,
+    signInCandidate, signOutCandidate, isCandidateAuth, accessCodeHash, normalizeAccessCode,
     getLastError: () => lastError
   };
 })();
@@ -1178,6 +1271,9 @@ if (typeof window !== "undefined") {
     signInAdmin: Store.signInAdmin, signOutAdmin: Store.signOutAdmin,
     isAdminAuth: Store.isAdminAuth, getAuthUid: Store.getAuthUid,
     getAuthEmail: Store.getAuthEmail, changeAdminPassword: Store.changeAdminPassword,
+    signInCandidate: Store.signInCandidate, signOutCandidate: Store.signOutCandidate,
+    isCandidateAuth: Store.isCandidateAuth, accessCodeHash: Store.accessCodeHash,
+    normalizeAccessCode: Store.normalizeAccessCode,
     PLACE_LIST, findPlace, placeName, placeLabel
   };
 }

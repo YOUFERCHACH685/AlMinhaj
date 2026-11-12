@@ -24,5 +24,13 @@ window.MANHAJ_CONFIG = {
      كلمة المرور لا تُخزَّن في هذه الملفات: غيّرها من «الإعدادات»
      ← «أمان حساب المشرف» داخل فضاء المشرف. */
   adminEmail: "admin@alminhaj.local",
-  adminUid: "QafQ4Dtou0WB0VatlyJifIEwt6y2"
+  adminUid: "QafQ4Dtou0WB0VatlyJifIEwt6y2",
+
+  /* نطاق البريد الذي يُشتق منه حساب المترشح من «رمز المترشح». */
+  candidateDomain: "manhaj.local",
+
+  /* إجبار استعمال «رمز المترشح» عند التسجيل: هو ما يجعل هوية المترشح
+     محفوظة على كل الأجهزة (مسح بيانات المتصفّح لا يُنشئ هوية جديدة).
+     اضبطه false للرجوع إلى الدخول المجهول. */
+  requireAccessCode: true
 };

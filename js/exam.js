@@ -11,7 +11,7 @@
 
   const { Store, gradePaper, esc, shuffle, uid, fmtDate, fmtClock, fmtDuration, toast, wordCount, deviceId, normalizeAr, pad2, PLACE_LIST, placeLabel } = window.App;
 
-const KEYS = { progress: "manhaj_progress_v1", wait: "manhaj_waiting_v1" };
+const KEYS = { progress: "manhaj_progress_v1", wait: "manhaj_waiting_v1", code: "manhaj_code_v1" };
 
 const S = {
   bank: null,
@@ -45,6 +45,8 @@ const S = {
   finishedSaved: false,  /* هل حُفظت النسخة النهائية؟ */
   finishedRec: null,     /* النسخة النهائية بانتظار إنهاء الجلسة */
   finishedGraded: null,
+  accessCode: "",        /* رمز المترشح (بيانات الدخول) */
+  codeHash: "",          /* بصمة الرمز (تُحفظ في النسخة) */
   unlockPoll: null,
   finishClock: null,
   finishSince: 0,
@@ -460,12 +462,10 @@ async function finishExam() {
     started_at: S.startedAt,
     finished_at: new Date().toISOString(),
     duration_sec: duration,
-    mcq_score: graded.mcq,
-    open_score: graded.open,
-    final_score: graded.total,
-    percent: graded.percent,
-    status: "auto",
-    graded_note: "",
+    code_hash: S.codeHash || "",
+    /* لا تُرسل النقاط ولا ملاحظات التصحيح: قواعد Firebase تمنع المترشح
+       من كتابتها (المشرف وحده ينشر التصحيح الرسمي). */
+    status: "submitted",
     answers: JSON.stringify({
       bankVersion: S.bank.version,
       form: S.formKey,
@@ -656,12 +656,17 @@ function showResult(rec, graded) {
   const maxTotal = Number(graded.maxPoints || (S.form ? formTotal(S.form) : 100) || 100);
   const maxMcq = Number(graded.mcqMax != null ? graded.mcqMax : (S.form ? S.form.questions.filter(q => q.type === "mcq").reduce((a, q) => a + Number(q.points || 0), 0) : 0));
   const maxOpen = Number(graded.openMax != null ? graded.openMax : (S.form ? S.form.questions.filter(q => q.type === "open").reduce((a, q) => a + Number(q.points || 0), 0) : 0));
-  const pct = Math.max(0, Math.min(100, graded.percent));
+  const isOfficial = !!(rec && rec.official);
+  const pct = isOfficial ? Math.max(0, Math.min(100, graded.percent)) : 0;
   const pm = Number(S.settings.passMark || 50);
+  const pending = $("#res-pending");
+  if (pending) pending.hidden = isOfficial;
   $("#dial").style.setProperty("--pct", pct);
   $("#dial").style.setProperty("--dial",
     pct >= 70 ? "var(--green-500)" : pct >= pm ? "var(--gold)" : "var(--danger)");
-  $("#res-score").textContent = String(Math.round(graded.total * 10) / 10).replace(/\.0$/, "");
+  $("#res-score").textContent = isOfficial
+    ? String(Math.round(graded.total * 10) / 10).replace(/\.0$/, "")
+    : "—";
   const totalMaxEl = $("#res-total-max");
   if (totalMaxEl) totalMaxEl.textContent = "/" + maxTotal;
   $("#res-name").textContent = `${rec.candidate_first} ${rec.candidate_last}`;
@@ -669,14 +674,16 @@ function showResult(rec, graded) {
   const placeTxt = placeLabel(rec.place_code, rec.place_name);
   $("#res-meta").textContent =
     `${S.bank.meta.title} — ${formLabel}${placeTxt !== "—" ? " · " + placeTxt : ""} · ${fmtDate(rec.finished_at)} · المدة ${fmtDuration(rec.duration_sec)}`;
-  $("#res-mcq").textContent = String(graded.mcq);
-  $("#res-open").textContent = String(graded.open);
+  $("#res-mcq").textContent = isOfficial ? String(graded.mcq) : "—";
+  $("#res-open").textContent = isOfficial ? String(graded.open) : "—";
   const mcqLabel = $("#res-mcq-label");
   if (mcqLabel) mcqLabel.textContent = `الاختيارات / ${maxMcq}`;
   const openLabel = $("#res-open-label");
   if (openLabel) openLabel.textContent = `التعبير / ${maxOpen}`;
-  $("#res-pct").innerHTML = `${Math.round(graded.percent)}<small>%</small>`;
-  $("#res-eyebrow").textContent = pct >= pm ? "نتيجة الاختبار" : "نتيجة الاختبار — دون المعدّل";
+  $("#res-pct").innerHTML = isOfficial ? `${Math.round(graded.percent)}<small>%</small>` : "—";
+  $("#res-eyebrow").textContent = !isOfficial
+    ? "النتيجة قيد التصحيح"
+    : (pct >= pm ? "نتيجة الاختبار" : "نتيجة الاختبار — دون المعدّل");
 
   const resSave = $("#res-save");
   if (resSave) { resSave.hidden = true; resSave.innerHTML = ""; }
@@ -685,7 +692,11 @@ function showResult(rec, graded) {
   const wroteOpen = openDetails.some(d => String(d.openText || "").trim().length > 0);
 
   const note = $("#res-note");
-  if (S.submission && S.submission.status === "validated") {
+  if (!isOfficial) {
+    note.innerHTML =
+      `<b>ملاحظة:</b> نسخةُك محفوظة لدى المشرف، والنقطة الرسمية تُنشر بعد تصحيحها. ` +
+      `لا يمكن لا لأحد — بما في ذلك متصفّحك — أن يكتب نقطة في نسختك قبل ذلك.`;
+  } else if (S.submission && S.submission.status === "validated") {
     note.innerHTML =
       `<b>ملاحظة:</b> ثبّت المشرف نقطة التعبير (${graded.open}/${maxOpen}) بعد مراجعتها. ` +
       `يمكنك الآن تحميل هذه الصفحة بصيغة PDF (من زر «استخراج النتيجة PDF» ثم اختيار «حفظ كـ PDF»).`;
@@ -716,12 +727,13 @@ function renderReview(graded, pct) {
   const head = document.createElement("div");
   head.className = "paper-meta";
   head.style.marginBottom = "18px";
+  const off = !!(S.submission && S.submission.official);
   head.innerHTML =
     `<span><b>${esc(S.candidate.first + " " + S.candidate.last)}</b></span>` +
     `<span>${esc((S.bank.forms && S.bank.forms[S.submission.form] && S.bank.forms[S.submission.form].label) || S.submission.form)}</span>` +
     `<span>${esc(placeLabel(S.submission.place_code, S.submission.place_name))}</span>` +
     `<span>${esc(fmtDate(S.submission.finished_at))}</span>` +
-    `<span>النقطة: <b>${Math.round(graded.total * 10) / 10}/${reviewMax}</b></span>`;
+    `<span>النقطة: <b>${off ? Math.round(graded.total * 10) / 10 + "/" + reviewMax : "—"}</b></span>`;
   box.appendChild(head);
 
   S.form.questions.forEach((q, i) => {
@@ -876,9 +888,11 @@ function sameName(a, b, c, d) {
   return k1 && (k1 === k2 || k1 === normFull(d, c));
 }
 
-/* يمنع الترشح المكرر في نفس الجلسة: نفس الجهاز (محليًا) أو نفس الاسم (طاولات/محليًا) */
+/* يمنع الترشح المكرر في نفس الجلسة: نفس الجهاز (محليًا) أو نفس الاسم (طاولات/محليًا)
+   أما نفس «رمز المترشح» فهو نفس الشخص: استئناف من جهاز آخر لا ترشح مكرّر. */
 async function findDuplicate(sessionId, candidate) {
   const device = deviceId();
+  const myHash = (candidate && candidate.codeHash) || S.codeHash || "";
 
   const mine = localMirrorRows().find(r => r && r.session_id === sessionId && r.device_id === device && r.status !== "removed");
   if (mine) return mine.status === "waiting" ? { kind: "device-waiting", row: mine } : { kind: "device", row: mine };
@@ -891,6 +905,12 @@ async function findDuplicate(sessionId, candidate) {
 
   try {
     const rows = await Store.listSummaries();
+    /* نفس الرمز = نفس المترشح: نستأنف ولا نرفض */
+    if (myHash) {
+      const byCode = rows.find(r =>
+        r && r.session_id === sessionId && r.code_hash === myHash && r.status !== "removed");
+      if (byCode) return byCode.status === "waiting" ? { kind: "code-waiting", row: byCode } : { kind: "code", row: byCode };
+    }
     const dup = rows.find(r =>
       r && r.session_id === sessionId && r.status !== "removed" &&
       (r.device_id === device ||
@@ -1088,12 +1108,9 @@ async function joinWaiting(c, launch) {
     started_at: null,
     finished_at: null,
     duration_sec: 0,
-    mcq_score: 0,
-    open_score: 0,
-    final_score: 0,
-    percent: 0,
+    code_hash: c.codeHash || S.codeHash || "",
+    /* النقاط لا تُرسَل من طرف المترشح (قواعد Firebase تمنع ذلك). */
     status: "waiting",
-    graded_note: "",
     joined_at: new Date().toISOString(),
     answers: JSON.stringify({ sessionId: launch.id, status: "waiting" })
   };
@@ -1102,7 +1119,7 @@ async function joinWaiting(c, launch) {
   return rec;
 }
 
-function showRepeatBox(row, keepForm) {
+function showRepeatBox(row, keepForm, byCode) {
   S.previousRow = row;
   const form = $("#start-form");
   const hint = $("#start-hint");
@@ -1112,13 +1129,16 @@ function showRepeatBox(row, keepForm) {
     if (hint) hint.hidden = true;
   }
   if (!box) return;
+  const official = !!row.official;
   const pct = Math.round(Number(row.percent || row.final_score || 0) * 10) / 10;
   const st = row.status === "validated" ? "ثبّت المشرف نقطة التعبير" : "بانتظار تثبيت المشرف لنقطة التعبير";
   const placeTxt = placeLabel(row.place_code, row.place_name);
   const when = S.launch ? "في هذه الجلسة" : "في آخر جلسة";
   const currentOpen = S.launch && row.session_id === S.launch.id && S.launch.status !== "closed";
   const head = box.querySelector("p b");
-  if (head) head.textContent = `لقد أديت الاختبار من هذا الجهاز ${when}.`;
+  if (head) head.textContent = byCode
+    ? `لقد أديت الاختبار بهذا الرمز ${when}.`
+    : `لقد أديت الاختبار من هذا الجهاز ${when}.`;
   let totalMax = 100;
   try {
     const d = typeof row.answers === "object" && row.answers ? row.answers : JSON.parse(row.answers || "{}");
@@ -1129,6 +1149,9 @@ function showRepeatBox(row, keepForm) {
   if (currentOpen) {
     $("#repeat-meta").textContent =
       `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}تمّ إنهاء نسختك · النتيجة تظهر بعد إنهاء المشرف للجلسة.`;
+  } else if (!official) {
+    $("#repeat-meta").textContent =
+      `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}النتيجة الرسمية ينشرها المشرف بعد تصحيح النسخة.`;
   } else {
     $("#repeat-meta").textContent =
       `${placeTxt !== "—" ? "المكان: " + placeTxt + " · " : ""}النقطة: ${Math.round(Number(row.final_score || 0) * 10) / 10}/${totalMax} (${pct}%) · ${st} · ${fmtDate(row.finished_at)}`;
@@ -1173,11 +1196,16 @@ function showResultFromRow(row) {
 
   const computedMcq = snap.filter(s => s.type === "mcq")
     .reduce((sum, s) => sum + (s.given && s.given === s.correct ? Number(s.points || 0) : 0), 0);
-  const mcq = row.mcq_score != null ? Number(row.mcq_score) : computedMcq;
-  const open = row.open_score != null ? Number(row.open_score) : Number(row.open_score || 0);
-  const total = row.final_score != null ? Number(row.final_score) : (mcq + open);
+  /* النقطة المعروضة هي النقطة الرسمية المنشورة من طرف المشرف فقط.
+     ما لم تُنشر، لا تُعرض أي نقطة (ولا تُحسب محليًا). */
+  const official = !!row.official;
+  const mcq = official ? (row.mcq_score != null ? Number(row.mcq_score) : computedMcq) : 0;
+  const open = official ? (row.open_score != null ? Number(row.open_score) : 0) : 0;
+  const total = official ? (row.final_score != null ? Number(row.final_score) : (mcq + open)) : 0;
   const maxTotal = questions.reduce((a, q) => a + Number(q.points || 0), 0) || 1;
-  const percent = row.percent != null ? Number(row.percent) : Math.round((total / maxTotal) * 1000) / 10;
+  const percent = official
+    ? (row.percent != null ? Number(row.percent) : Math.round((total / maxTotal) * 1000) / 10)
+    : 0;
 
   const graded = {
     details, mcq, open, total, percent,
@@ -1224,8 +1252,30 @@ function validateForm() {
     err.textContent = "يجب اختيار المكان (المحطة) من القائمة.";
     return null;
   }
+  const codeEl = $("#f-code");
+  const code = window.App.normalizeAccessCode(codeEl ? codeEl.value : "");
+  const needCode = !!(window.MANHAJ_CONFIG && window.MANHAJ_CONFIG.requireAccessCode) &&
+    Store.getMode() === "cloud";
+  if (needCode && code.length < 6) {
+    err.textContent = "أدخل رمز المترشح الذي يوزّعه عليك المشرف (6 أحرف أو أرقام على الأقل).";
+    return null;
+  }
   err.textContent = "";
-  return { last, first, placeCode: place.code, placeName: place.name };
+  return { last, first, placeCode: place.code, placeName: place.name, code, codeHash: "" };
+}
+
+/* رسائل أخطاء حساب المترشح (Firebase) */
+function candidateAuthMessage(e) {
+  const code = String((e && (e.code || e.message)) || "");
+  if (code === "BAD_ACCESS_CODE") return "رمز المترشح غير صالح: 6 أحرف أو أرقام على الأقل.";
+  if (code.indexOf("INVALID_LOGIN_CREDENTIALS") !== -1 ||
+      code.indexOf("EMAIL_EXISTS") !== -1 ||
+      code.indexOf("EMAIL_NOT_FOUND") !== -1 ||
+      code.indexOf("INVALID_PASSWORD") !== -1) return "تعذّر التحقق من رمز المترشح. تأكّد من الرمز الذي وزّعه عليك المشرف.";
+  if (code.indexOf("WEAK_PASSWORD") !== -1) return "الرمز قصير جدًا: 6 أحرف أو أرقام على الأقل.";
+  if (code.indexOf("TOO_MANY_ATTEMPTS") !== -1) return "محاولات كثيرة. انتظر قليلًا ثم أعد المحاولة.";
+  if (code.indexOf("NETWORK") !== -1) return "تعذّر الاتصال بالإنترنت. تحقّق من الشبكة ثم أعد المحاولة.";
+  return "تعذّر التحقق من رمز المترشح. تحقّق من الاتصال ثم أعد المحاولة.";
 }
 
 function fillPlaceOptions() {
@@ -1344,12 +1394,13 @@ async function handleJoin(c) {
     const dup = await findDuplicate(launch.id, c);
     if (dup) {
       const mine = dup.row && dup.row.device_id === deviceId();
+      const sameCode = dup.kind === "code" || dup.kind === "code-waiting";
       if (dup.kind === "error") {
         err.textContent = "تعذّر التحقق من التكرار. تحقّق من الاتصال ثم حاول مجدًا.";
         return;
       }
       if (dup.kind.endsWith("waiting")) {
-        if (mine) {
+        if (mine || sameCode) {
           clearProgress();
           // إعادة قراءة launch قبل البدء
           const fresh = await Store.getLaunch();
@@ -1365,8 +1416,10 @@ async function handleJoin(c) {
         err.textContent = "هذا الاسم مسجّل في قائمة الانتظار على جهاز آخر. تواصل مع المشرف.";
         return;
       }
-      if (mine) { if (dup.row) showRepeatBox(dup.row); }
-      err.textContent = "لا يمكن الترشح أكثر من مرة في الجلسة الواحدة (نفس الجهاز أو نفس الاسم).";
+      if (mine || sameCode) { if (dup.row) showRepeatBox(dup.row, false, sameCode); }
+      err.textContent = sameCode
+        ? "لقد أديت الاختبار بهذا الرمز في هذه الجلسة."
+        : "لا يمكن الترشح أكثر من مرة في الجلسة الواحدة (نفس الجهاز أو نفس الاسم).";
       return;
     }
 
@@ -1439,6 +1492,21 @@ async function boot() {
 
   fillPlaceOptions();
 
+  /* استعادة رمز المترشح المحفوظ: يُعيد تسجيل الدخول تلقائيًا
+     فيبقى المعرّف (uid) واحدًا على كل الأجهزة. */
+  try {
+    const savedCode = localStorage.getItem(KEYS.code);
+    const codeEl = $("#f-code");
+    if (savedCode) {
+      S.accessCode = savedCode;
+      if (codeEl && !codeEl.value) codeEl.value = savedCode;
+      if (!Store.isCandidateAuth() && Store.getMode() === "cloud") {
+        try { await Store.signInCandidate(savedCode); }
+        catch (e) { /* سنطلب الرمز مجددًا عند التسجيل */ }
+      }
+    }
+  } catch (e) { /* ignore */ }
+
   if (Store.getMode() !== "cloud") {
     const warn = document.createElement("div");
     warn.className = "callout callout-warn";
@@ -1509,11 +1577,30 @@ async function boot() {
     if (last) showRepeatBox(last, true);
   }
 
-  $("#start-form").addEventListener("submit", ev => {
+  $("#start-form").addEventListener("submit", async ev => {
     ev.preventDefault();
     const c = validateForm();
     if (!c) return;
-    handleJoin(c);
+    const btn = $("#btn-start");
+    const err = $("#form-err");
+    if (btn) btn.disabled = true;
+    try {
+      if (c.code) {
+        err.textContent = "جارٍ التحقق من رمز المترشح…";
+        const res = await Store.signInCandidate(c.code);
+        c.codeHash = await Store.accessCodeHash(c.code);
+        S.accessCode = c.code;
+        S.codeHash = c.codeHash;
+        try { localStorage.setItem(KEYS.code, c.code); } catch (e2) { /* ignore */ }
+        err.textContent = "";
+      }
+      await handleJoin(c);
+    } catch (e) {
+      console.warn(e);
+      err.textContent = candidateAuthMessage(e);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   });
 
   const prevBtn = $("#btn-show-previous");

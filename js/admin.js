@@ -232,6 +232,7 @@ function boot() {
   bindSettings();
   bindCloudSettings();
   bindWord();
+  bindCodes();
 
   /* إذا رفضت Firebase الجلسة (انتهت صلاحيتها أو تغيّرت الصلاحيات)
      نعيد المشرف إلى بوابة الدخول بدل تركه أمام لوحة لا يستطيع الكتابة فيها. */
@@ -396,6 +397,7 @@ async function loadAll(notify) {
     renderResults();
     renderQuestions();
     fillSettings();
+    renderCodes();
     if (notify) toast("تمّ التحديث");
   } catch (e) {
     console.error(e);
@@ -433,7 +435,9 @@ function passMarkValue() {
 }
 
 function dashStats(rows) {
-  const scores = rows.map(r => Number(r.final_score || 0));
+  /* لا تُحتسب إلا النسخ التي نُشرت نقطها رسميًا */
+  const scored = rows.filter(r => r && r.official);
+  const scores = scored.map(r => Number(r.final_score || 0));
   const n = scores.length;
   const pm = passMarkValue();
   let sum = 0, passed = 0, best = null, worst = null;
@@ -1253,15 +1257,23 @@ function renderResults() {
     const formLabel = (A.bank.forms[r.form] || {}).label || r.form;
     const st = r.status === "validated"
       ? `<span class="badge badge-ok">مثبّتة</span>`
-      : `<span class="badge badge-warn">آلية</span>`;
+      : (r.official
+        ? `<span class="badge badge-warn">آلية</span>`
+        : `<span class="badge badge-neutral">بانتظار التصحيح</span>`);
+    const scoreCell = r.official
+      ? `<span class="score-pill ${scoreClass(pct)}">${Math.round(pct * 10) / 10}</span>`
+      : "—";
+    const codeCell = r.code_hash
+      ? `<span class="small muted" title="بصمة رمز المترشح">${esc(String(r.code_hash).slice(0, 6))}</span>`
+      : "";
     return `<tr>
       <td class="num">${i + 1}</td>
-      <td><b>${esc(r.candidate_first)} ${esc(r.candidate_last)}</b></td>
+      <td><b>${esc(r.candidate_first)} ${esc(r.candidate_last)}</b>${codeCell ? " " + codeCell : ""}</td>
       <td class="nowrap">${esc(rowPlaceText(r))}</td>
       <td class="num">${esc(formLabel)}</td>
       <td class="num">${r.mcq_score == null ? "—" : esc(Number(r.mcq_score))}</td>
       <td class="num">${r.open_score == null ? "—" : esc(Number(r.open_score))}</td>
-      <td class="num"><span class="score-pill ${scoreClass(pct)}">${Math.round(pct * 10) / 10}</span></td>
+      <td class="num">${scoreCell}</td>
       <td class="num nowrap">${esc(fmtDate(r.finished_at))}</td>
       <td class="num">${st}</td>
       <td class="nowrap">
@@ -1406,6 +1418,9 @@ function openDetail(id) {
       final_score: Math.round((mcq + openScore) * 10) / 10,
       percent: Math.round(((mcq + openScore) / totalMax) * 1000) / 10,
       status: "validated",
+      graded_by: "manual",
+      official: true,
+      official_at: new Date().toISOString(),
       graded_note: note
     };
     try {
@@ -2003,6 +2018,9 @@ async function finalizeAbandoned(sessionId) {
           graded_note: p.answers
             ? "تصحيح تلقائي بعد انتهاء الجلسة"
             : "تصحيح تلقائي — لم تُحفظ أي إجابة",
+          graded_by: "auto",
+          official: true,
+          official_at: finishedAt,
           progress: null,
           progress_at: null,
           finalized_auto: true,
@@ -2041,6 +2059,178 @@ async function finalizeAbandoned(sessionId) {
   return done;
 }
 
+/* ========================================================= التصحيح الرسمي
+   النقط لا يكتبها المترشح إطلاقًا (قواعد Firebase تمنع ذلك).
+   هنا يعيد المشرف حساب النقط من بنك الأسئلة — وهو المصدر الموثوق —
+   اعتمادًا على أجوبة المترشح، ثم ينشرها في نسخته. */
+function officialGrade(row) {
+  const formKey = row.form || "A";
+  const formObj = A.bank && A.bank.forms && A.bank.forms[formKey];
+  if (!formObj || !Array.isArray(formObj.questions) || !formObj.questions.length) return null;
+  const data = parseAnswers(row);
+  const details = Array.isArray(data.details) ? data.details : [];
+  /* نعيد بناء أجوبة المترشح من تفاصيل نسخته */
+  const answers = {};
+  formObj.questions.forEach(q => {
+    const d = details.find(x => x.qid === q.id);
+    if (!d) return;
+    if (q.type === "mcq") answers[q.id] = { choice: d.given || null };
+    else answers[q.id] = { text: d.openText || "" };
+  });
+  const graded = gradePaper(formObj, answers);
+  return { formKey, formObj, graded };
+}
+
+async function publishOfficialScores() {
+  const rows = A.rows || [];
+  const targets = rows.filter(r =>
+    r && r.finished_at && !r.official && r.status !== "removed" && r.status !== "waiting");
+  if (!targets.length) return 0;
+  let done = 0;
+  for (const r of targets) {
+    try {
+      const og = officialGrade(r);
+      if (!og) continue;
+      const graded = og.graded;
+      const settings = A.settings || {};
+      await Store.updateSubmission(r.id, {
+        mcq_score: graded.mcq,
+        open_score: graded.open,
+        final_score: graded.total,
+        percent: graded.percent,
+        status: "auto",
+        graded_by: "auto",
+        official: true,
+        official_at: new Date().toISOString(),
+        graded_note: "تصحيح رسمي من طرف المشرف",
+        answers: JSON.stringify({
+          bankVersion: A.bank.version,
+          form: og.formKey,
+          sessionId: r.session_id,
+          deviceId: r.device_id,
+          details: graded.details,
+          snapshot: snapshotFromBank(og.formObj, graded),
+          settings: { mcqSeconds: settings.mcqSeconds, openSeconds: settings.openSeconds }
+        })
+      });
+      done++;
+    } catch (e) {
+      console.warn("تعذّر نشر التصحيح الرسمي", r.id, e);
+    }
+  }
+  if (done) {
+    try {
+      A.rows = await Store.listSubmissions();
+      updatePanelSub();
+      fillResultFilters();
+      renderSession();
+      renderResults();
+      const dashPanel = $("#tab-dash");
+      if (dashPanel && !dashPanel.hidden) renderDash();
+    } catch (e) { /* ignore */ }
+  }
+  return done;
+}
+
+/* ======================================================= أكواد المترشحين
+   الرموز هي بيانات الدخول الحقيقية للمترشحين (Firebase Email/Password).
+   تُحفظ في متصفّح المشرف فقط — لا تُرسل إلى الخادم ولا تظهر في قاعدة البيانات. */
+const CODES_KEY = "manhaj_codes_v1";
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; /* بلا I و O و 0 و 1 */
+
+function loadCodes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(CODES_KEY) || "[]");
+    return Array.isArray(raw) ? raw : [];
+  } catch (e) { return []; }
+}
+function saveCodes(list) {
+  try { localStorage.setItem(CODES_KEY, JSON.stringify(list)); } catch (e) { /* ignore */ }
+}
+function randomAccessCode() {
+  let s = "";
+  for (let i = 0; i < 8; i++) s += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+  return s.slice(0, 4) + "-" + s.slice(4);
+}
+function generateAccessCodes(n) {
+  const count = Math.max(1, Math.min(200, Number(n || 30)));
+  const list = loadCodes();
+  const used = new Set(list.map(c => c.code));
+  for (let i = 0; i < count; i++) {
+    let code;
+    do { code = randomAccessCode(); } while (used.has(code));
+    used.add(code);
+    list.push({ code, hash: "", createdAt: new Date().toISOString() });
+  }
+  saveCodes(list);
+  renderCodes();
+  toast(`تمّ توليد ${count} رمزًا`);
+}
+async function renderCodes() {
+  const host = $("#codes-list");
+  if (!host) return;
+  const list = loadCodes();
+  const badge = $("#codes-badge");
+  if (badge) badge.textContent = String(list.length);
+  if (!list.length) {
+    host.innerHTML = `<div class="table-empty">لا توجد أكواد بعد — ولّد أكوادًا قبل فتح الجلسة.</div>`;
+    return;
+  }
+  for (const c of list) {
+    if (!c.hash) { try { c.hash = await Store.accessCodeHash(c.code); } catch (e) { c.hash = ""; } }
+  }
+  saveCodes(list);
+  const usedHashes = new Set((A.rows || []).map(r => r.code_hash).filter(Boolean));
+  host.innerHTML = `<div class="table-scroll"><table class="data">
+    <thead><tr><th class="num">#</th><th>الرمز</th><th>البصمة</th><th>الحالة</th></tr></thead>
+    <tbody>${list.map((c, i) => `<tr>
+      <td class="num">${i + 1}</td>
+      <td class="nowrap"><b dir="ltr">${esc(c.code)}</b></td>
+      <td class="num small muted" dir="ltr">${esc(c.hash || "")}</td>
+      <td>${usedHashes.has(c.hash)
+        ? `<span class="badge badge-ok">مستعمل</span>`
+        : `<span class="badge badge-neutral">غير مستعمل</span>`}</td>
+    </tr>`).join("")}</tbody></table></div>`;
+}
+function bindCodes() {
+  const gen = $("#btn-codes-gen");
+  if (gen) gen.addEventListener("click", () => generateAccessCodes($("#codes-count").value));
+  const copy = $("#btn-codes-copy");
+  if (copy) copy.addEventListener("click", async () => {
+    const list = loadCodes();
+    if (!list.length) { toast("لا توجد أكواد", true); return; }
+    const text = list.map((c, i) => `${i + 1}. ${c.code}`).join("\n");
+    const ok = await copyText(text);
+    toast(ok ? "نُسخت الأكواد" : "تعذّر النسخ — حدّدها يدويًّا", !ok);
+  });
+  const print = $("#btn-codes-print");
+  if (print) print.addEventListener("click", () => {
+    const list = loadCodes();
+    if (!list.length) { toast("لا توجد أكواد", true); return; }
+    const w = window.open("", "_blank");
+    if (!w) { toast("تعذّر فتح نافذة الطباعة", true); return; }
+    w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8">
+      <title>أكواد المترشحين</title><style>
+      body{font-family:Cairo,Arial,sans-serif;padding:24px;color:#111}
+      h1{font-size:20px;margin:0 0 4px}
+      p{color:#555;margin:0 0 16px;font-size:13px}
+      table{border-collapse:collapse;width:100%;font-size:14px}
+      td,th{border:1px solid #ccc;padding:6px 8px}
+      th{background:#f2f2f2}
+      code{font-family:Consolas,monospace;letter-spacing:1px;font-size:15px}
+      @media print{body{padding:0}}
+      </style></head><body>
+      <h1>أكواد المترشحين — رموز الدخول</h1>
+      <p>يوزَّع رمز واحد لكل مترشح. يُستعمل في خانة «رمز المترشح» بصفحة الاختبار.
+      الرمز سرّي: لا يُشارك ولا يُصوَّر. المدة: …………………</p>
+      <table><thead><tr><th>#</th><th>الرمز</th><th>الاسم</th></tr></thead><tbody>
+      ${list.map((c, i) => `<tr><td>${i + 1}</td><td><code>${c.code}</code></td><td></td></tr>`).join("")}
+      </tbody></table></body></html>`);
+    w.document.close();
+    setTimeout(() => { try { w.print(); } catch (e) { /* ignore */ } }, 400);
+  });
+}
+
 async function refreshSessionData(notify, forceFull) {
   if (!isAuthed()) { stopSessionTimer(); return; }
   try {
@@ -2053,11 +2243,14 @@ async function refreshSessionData(notify, forceFull) {
     A.rows = rows;
     A.launch = launch;
     A.sessions = await Store.getSessions(rows);
+    /* نشر التصحيح الرسمي لكل نسخة أنهى المترشحها ولم تُنشر نقطها بعد */
+    await publishOfficialScores();
     syncSeenResults(true);
     updatePanelSub();
     fillResultFilters();
     renderSession();
     renderResults();
+    renderCodes();
     const dashPanel = $("#tab-dash");
     if (dashPanel && !dashPanel.hidden) renderDash();
     if (notify) toast("حُدّثت قائمة الانتظار");
