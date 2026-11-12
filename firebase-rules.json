@@ -2,7 +2,19 @@
   "rules": {
     "manhaj": {
       ".read": "auth != null",
-      ".write": "auth != null"
+      "config": {
+        ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+      },
+      "submissions": {
+        "$id": {
+          ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (data.exists() && data.child('owner').val() === auth.uid) || (!data.exists() && newData.child('owner').val() === auth.uid))"
+        }
+      },
+      "summaries": {
+        "$id": {
+          ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (data.exists() && data.child('owner').val() === auth.uid) || (!data.exists() && newData.child('owner').val() === auth.uid))"
+        }
+      }
     }
   }
 }

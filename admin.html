@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Amiri:wght@400;700&family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=12">
+<link rel="stylesheet" href="css/style.css?v=13">
 </head>
 <body>
 
@@ -41,19 +41,25 @@
       <div class="card card-pad-lg">
         <p class="eyebrow">دخول محمي</p>
         <h2 style="margin-bottom:6px">فضاء المشرف</h2>
-        <p class="small muted">أدخل رمز الدخول للمتابعة.</p>
+        <p class="small muted">سجّل الدخول بحساب المشرف المعتمد (Firebase Authentication).</p>
         <form id="login-form" novalidate>
           <label class="field">
-            <span>رمز الدخول</span>
-            <input type="password" id="login-code" autocomplete="current-password"
+            <span>البريد الإلكتروني</span>
+            <input type="email" id="login-email" dir="ltr" autocomplete="username"
+                   placeholder="admin@example.com" required>
+          </label>
+          <label class="field">
+            <span>كلمة المرور</span>
+            <input type="password" id="login-password" dir="ltr" autocomplete="current-password"
                    placeholder="••••••••" required>
           </label>
           <p class="err" id="login-err" role="alert"></p>
-          <button class="btn btn-block" type="submit">دخول</button>
+          <button class="btn btn-block" type="submit" id="login-submit">دخول</button>
         </form>
         <p class="hint" style="margin-top:14px">
-          رمز الدخول مخزّن بصيغة SHA-256 ولا يظهر في الشيفرة. يتيح 5 محاولات كل 10 دقائق.
-          يبقى هذا حاجزًا تنظيميًا على مستوى المتصفح؛ لحماية أقوى انشر الصفحة خلف مصادقة الاستضافة.
+          المصادقة تتم في Firebase لا في هذه الصفحة: لا تُخزَّن كلمة المرور في الموقع،
+          وصلاحية الكتابة على قاعدة البيانات محصورة في حساب المشرف وحده.
+          تُقفل المحاولات 10 دقائق بعد 5 محاولات فاشلة.
         </p>
       </div>
     </div>
@@ -363,6 +369,35 @@
           <p class="small muted" style="margin-top:6px">امسح هذا الرمز من هاتف المترشح لفتح الاختبار تلقائيًا.</p>
         </div>
       </div>
+
+      <div class="card" style="margin-top:14px">
+        <div class="card-head">
+          <h3 style="margin:0">أمان حساب المشرف</h3>
+          <span class="badge badge-neutral" id="account-email" dir="ltr">—</span>
+        </div>
+        <p class="small muted">
+          هذه كلمة مرور حساب Firebase الذي يملك وحده صلاحية الكتابة على الإعدادات والجلسات.
+          غيّرها هنا في أي وقت؛ التغيير يُطبَّق فورًا في Firebase.
+        </p>
+        <form id="password-form" novalidate>
+          <label class="field">
+            <span>كلمة المرور الحالية</span>
+            <input type="password" id="pass-current" dir="ltr" autocomplete="current-password" required>
+          </label>
+          <div class="field-row">
+            <label class="field">
+              <span>كلمة المرور الجديدة</span>
+              <input type="password" id="pass-new" dir="ltr" autocomplete="new-password" minlength="6" required>
+            </label>
+            <label class="field">
+              <span>تأكيد كلمة المرور</span>
+              <input type="password" id="pass-confirm" dir="ltr" autocomplete="new-password" minlength="6" required>
+            </label>
+          </div>
+          <p class="hint" id="password-msg" role="status" style="min-height:1.2em"></p>
+          <button class="btn" type="submit" id="password-submit">تغيير كلمة المرور</button>
+        </form>
+      </div>
     </div>
   </section>
 
@@ -377,12 +412,12 @@
   </div>
 </footer>
 
-<script src="js/bank.js?v=12"></script>
-<script src="js/config.js?v=12"></script>
-<script src="js/core.js?v=12"></script>
+<script src="js/bank.js?v=13"></script>
+<script src="js/config.js?v=13"></script>
+<script src="js/core.js?v=13"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="js/word.js?v=12"></script>
-<script src="js/admin.js?v=12"></script>
+<script src="js/word.js?v=13"></script>
+<script src="js/admin.js?v=13"></script>
 </body>
 </html>

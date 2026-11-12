@@ -271,41 +271,78 @@ const Store = (() => {
   }
 
   /* ---------------------------------------------------- Firebase Auth
-     عند وجود firebaseApiKey نسجّل دخولًا مجهولًا تلقائيًا ونضيف
-     idToken إلى كل طلب REST (?auth=...). هذا يسمح بقواعد أمان
-     ترفض أي وصول غير موثّق. */
+     وضعان منفصلان:
+       - مجهول (localStorage): للمترشحين. يبقى المعرّف نفسه على هذا الجهاز
+         حتى تُنسب النسخ إلى صاحبها (owner).
+       - مشرف (sessionStorage): بريد وكلمة مرور Firebase، ولا يُستعمل إلا
+         في فضاء المشرف. جلسة المشرف لا تنتقل إلى تبويب آخر.
+     كل طلب REST يحمل idToken عبر ?auth=... لتطبيق قواعد الأمان. */
   const FIREBASE_API_KEY = String(CFG.firebaseApiKey || "").trim();
-  const AUTH_KEY = "manhaj_firebase_auth_v1";
+  const AUTH_KEY = "manhaj_firebase_auth_v1";          /* anonymous — localStorage */
+  const ADMIN_AUTH_KEY = "manhaj_firebase_admin_v1";   /* admin — sessionStorage */
+  const ADMIN_UID = String(CFG.adminUid || "").trim();
   let authToken = "";
   let authRefresh = "";
   let authExpiresAt = 0;
+  let authUid = "";
+  let authEmail = "";
+  let authIsAdmin = false;
   let authPromise = null;
 
+  function readStoredAuth(storage, key) {
+    try {
+      const raw = storage.getItem(key);
+      if (!raw) return null;
+      const j = JSON.parse(raw);
+      return j && j.idToken ? j : null;
+    } catch (e) { return null; }
+  }
+  function applyAuth(j, isAdmin) {
+    authToken = j.idToken;
+    authRefresh = j.refreshToken || "";
+    authExpiresAt = Number(j.expiresAt || 0);
+    authUid = j.uid || "";
+    authEmail = j.email || "";
+    authIsAdmin = !!isAdmin;
+  }
   function loadAuth() {
     if (authToken) return;
-    try {
-      const raw = sessionStorage.getItem(AUTH_KEY);
-      if (!raw) return;
-      const j = JSON.parse(raw);
-      if (j && j.idToken) {
-        authToken = j.idToken;
-        authRefresh = j.refreshToken || "";
-        authExpiresAt = Number(j.expiresAt || 0);
-      }
-    } catch (e) { /* ignore */ }
+    /* جلسة المشرف لها الأولوية، لكنها معزولة في sessionStorage. */
+    const admin = readStoredAuth(sessionStorage, ADMIN_AUTH_KEY);
+    if (admin) { applyAuth(admin, true); return; }
+    const anon = readStoredAuth(localStorage, AUTH_KEY);
+    if (anon) applyAuth(anon, false);
   }
   function saveAuth() {
+    const payload = JSON.stringify({
+      idToken: authToken, refreshToken: authRefresh, expiresAt: authExpiresAt,
+      uid: authUid, email: authEmail
+    });
     try {
-      sessionStorage.setItem(AUTH_KEY, JSON.stringify({
-        idToken: authToken, refreshToken: authRefresh, expiresAt: authExpiresAt
+      if (authIsAdmin) sessionStorage.setItem(ADMIN_AUTH_KEY, payload);
+      else localStorage.setItem(AUTH_KEY, payload);
+    } catch (e) { /* ignore */ }
+  }
+  function notifyAdminAuthRequired(message) {
+    try {
+      window.dispatchEvent(new CustomEvent("manhaj-admin-auth-required", {
+        detail: { message: message || "انتهت جلسة المشرف. أعد تسجيل الدخول للمتابعة." }
       }));
     } catch (e) { /* ignore */ }
   }
   function clearAuth() {
+    const wasAdmin = authIsAdmin;
     authToken = "";
     authRefresh = "";
     authExpiresAt = 0;
-    try { sessionStorage.removeItem(AUTH_KEY); } catch (e) { /* ignore */ }
+    authUid = "";
+    authEmail = "";
+    authIsAdmin = false;
+    try {
+      if (wasAdmin) sessionStorage.removeItem(ADMIN_AUTH_KEY);
+      else localStorage.removeItem(AUTH_KEY);
+    } catch (e) { /* ignore */ }
+    if (wasAdmin) notifyAdminAuthRequired();
   }
   async function authRequest(url, body) {
     const res = await fetch(url, {
@@ -319,10 +356,32 @@ const Store = (() => {
       const code = json && json.error && json.error.message ? json.error.message : `HTTP ${res.status}`;
       const err = new Error(`تعذّر تسجيل الدخول إلى Firebase (${code}).`);
       err.status = res.status;
+      err.code = code;
       throw err;
     }
     return json;
   }
+
+  /* تجديد التوكن بنفس الهوية (لا يغيّر uid) */
+  async function refreshAuthToken() {
+    loadAuth();
+    if (!authRefresh || !FIREBASE_API_KEY) return false;
+    try {
+      const j = await authRequest(
+        `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
+        { grant_type: "refresh_token", refresh_token: authRefresh }
+      );
+      authToken = j.id_token || j.access_token || "";
+      authRefresh = j.refresh_token || authRefresh;
+      authExpiresAt = Date.now() + Number(j.expires_in || 3600) * 1000;
+      authUid = j.user_id || authUid;
+      saveAuth();
+      return !!authToken;
+    } catch (e) {
+      return false;
+    }
+  }
+
   async function ensureAuth() {
     if (!FIREBASE_API_KEY) return null;
     if (authToken && Date.now() < authExpiresAt - 60000) return authToken;
@@ -330,20 +389,14 @@ const Store = (() => {
     authPromise = (async () => {
       loadAuth();
       if (authToken && Date.now() < authExpiresAt - 60000) return authToken;
-      if (authToken && authRefresh) {
-        try {
-          const j = await authRequest(
-            `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
-            { grant_type: "refresh_token", refresh_token: authRefresh }
-          );
-          authToken = j.id_token || j.access_token || "";
-          authRefresh = j.refresh_token || authRefresh;
-          authExpiresAt = Date.now() + Number(j.expires_in || 3600) * 1000;
-          saveAuth();
-          return authToken;
-        } catch (e) {
-          clearAuth();
-        }
+      if (await refreshAuthToken()) return authToken;
+      const wasAdmin = authIsAdmin;
+      clearAuth();
+      if (wasAdmin) {
+        /* لا ننزل تلقائيًا إلى حساب مجهول في وضع المشرف */
+        const err = new Error("انتهت جلسة المشرف. أعد تسجيل الدخول للمتابعة.");
+        err.code = "ADMIN_AUTH_REQUIRED";
+        throw err;
       }
       const j = await authRequest(
         `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
@@ -352,11 +405,84 @@ const Store = (() => {
       authToken = j.idToken;
       authRefresh = j.refreshToken || "";
       authExpiresAt = Date.now() + Number(j.expiresIn || 3600) * 1000;
+      authUid = j.localId || "";
+      authEmail = j.email || "";
+      authIsAdmin = false;
       saveAuth();
       return authToken;
     })();
     try { return await authPromise; }
     finally { authPromise = null; }
+  }
+
+  /* دخول المشرف: بريد + كلمة مرور (Firebase Email/Password).
+     لا تُقبل إلا حسابات Firebase، ولا يُقبل إلا UID المشرف المعتمد. */
+  async function signInAdmin(email, password) {
+    if (!FIREBASE_API_KEY) throw new Error("لم يُضبط مفتاح Firebase في js/config.js.");
+    const j = await authRequest(
+      `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
+      { email: String(email || "").trim(), password: String(password || ""), returnSecureToken: true }
+    );
+    if (ADMIN_UID && j.localId !== ADMIN_UID) {
+      const err = new Error("هذا الحساب ليس حساب المشرف المعتمد.");
+      err.code = "NOT_ADMIN";
+      throw err;
+    }
+    authToken = j.idToken;
+    authRefresh = j.refreshToken || "";
+    authExpiresAt = Date.now() + Number(j.expiresIn || 3600) * 1000;
+    authUid = j.localId || "";
+    authEmail = j.email || String(email || "").trim();
+    authIsAdmin = true;
+    saveAuth();
+    return { uid: authUid, email: authEmail };
+  }
+
+  function signOutAdmin() {
+    authToken = "";
+    authRefresh = "";
+    authExpiresAt = 0;
+    authUid = "";
+    authEmail = "";
+    authIsAdmin = false;
+    try { sessionStorage.removeItem(ADMIN_AUTH_KEY); } catch (e) { /* ignore */ }
+  }
+
+  function isAdminAuth() {
+    loadAuth();
+    return authIsAdmin && !!authToken;
+  }
+  function getAuthUid() {
+    loadAuth();
+    return authUid || "";
+  }
+  function getAuthEmail() {
+    loadAuth();
+    return authEmail || "";
+  }
+
+  /* تغيير كلمة مرور المشرف: نتحقق من الكلمة الحالية عبر إعادة الدخول،
+     ثم نحدّث كلمة المرور في Firebase. */
+  async function changeAdminPassword(currentPassword, newPassword) {
+    if (!isAdminAuth()) {
+      const err = new Error("انتهت جلسة المشرف. أعد تسجيل الدخول.");
+      err.code = "ADMIN_AUTH_REQUIRED";
+      throw err;
+    }
+    const email = authEmail || String(CFG.adminEmail || "").trim();
+    await signInAdmin(email, currentPassword);
+    const j = await authRequest(
+      `https://identitytoolkit.googleapis.com/v1/accounts:update?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
+      { idToken: authToken, password: String(newPassword || ""), returnSecureToken: true }
+    );
+    authToken = j.idToken || authToken;
+    authRefresh = j.refreshToken || authRefresh;
+    authExpiresAt = Date.now() + Number(j.expiresIn || 3600) * 1000;
+    authUid = j.localId || authUid;
+    authEmail = j.email || authEmail;
+    authIsAdmin = true;
+    saveAuth();
+    return true;
   }
 
   let lastError = null;
@@ -369,6 +495,7 @@ const Store = (() => {
   async function cloudRequest(path, options) {
     const opts = options || {};
     let lastErr = null;
+    let authRetried = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 15000);
@@ -387,13 +514,39 @@ const Store = (() => {
           const text = await res.text();
           return text ? JSON.parse(text) : null;
         }
-        /* قد يكون التوكن منتهيًا: نمسحه ونعيد المحاولة مرة واحدة */
-        if ((res.status === 401 || res.status === 403) && FIREBASE_API_KEY && attempt === 0) {
-          clearAuth();
-          lastErr = new Error("تعذّر الوصول إلى Firebase: قواعد الأمان ترفض القراءة/الكتابة (401/403).");
-          lastErr.status = res.status;
-          await sleep(300);
-          continue;
+        /* 401/403: إمّا أن التوكن منتهٍ، أو أن القواعد ترفض العملية.
+           نحدّث التوكن مرة واحدة مع الحفاظ على نفس الهوية (uid)،
+           فلا يتغيّر صاحب النسخة ولا يفقد ملكيتها. */
+        if ((res.status === 401 || res.status === 403) && FIREBASE_API_KEY) {
+          const wasAdmin = authIsAdmin;
+          if (!authRetried) {
+            authRetried = true;
+            if (await refreshAuthToken()) {
+              await sleep(250);
+              continue;
+            }
+            if (wasAdmin) {
+              clearAuth();
+              const err = new Error("انتهت جلسة المشرف أو لا تملك صلاحية هذا الإجراء. أعد تسجيل الدخول.");
+              err.status = res.status;
+              lastError = err;
+              throw err;
+            }
+            clearAuth();
+            lastErr = new Error("تعذّر الوصول إلى Firebase: قواعد الأمان ترفض القراءة/الكتابة (401/403).");
+            lastErr.status = res.status;
+            await sleep(300);
+            continue;
+          }
+          const err = new Error(
+            wasAdmin
+              ? "لا تملك صلاحية هذا الإجراء في Firebase. تحقّق من حساب المشرف."
+              : "تعذّر الوصول إلى Firebase: قواعد الأمان ترفض القراءة/الكتابة (401/403)."
+          );
+          err.status = res.status;
+          if (wasAdmin) clearAuth();
+          lastError = err;
+          throw err;
         }
         const err = new Error(
           res.status === 401 || res.status === 403
@@ -497,7 +650,7 @@ const Store = (() => {
   const SUMMARY_FIELDS = [
     "session_id", "device_id", "candidate_first", "candidate_last", "place_code",
     "place_name", "status", "started_at", "finished_at", "form", "mcq_score",
-    "open_score", "final_score", "percent", "joined_at", "progress_at"
+    "open_score", "final_score", "percent", "joined_at", "progress_at", "owner"
   ];
   function summaryOf(rec) {
     const out = { id: rec.id, updated_at: new Date().toISOString() };
@@ -615,7 +768,15 @@ const Store = (() => {
   async function addSubmission(rec) {
     const m = await probe();
     if (m === "cloud") {
-      const row = { ...rec, id: rec.id || uid(), created_at: rec.created_at || Date.now() };
+      /* owner = معرّف Firebase (uid) : يربط النسخة بصاحبها
+         حتى لا يستطيع مترشح آخر تعديلها أو حذفها. */
+      const owner = getAuthUid();
+      const row = {
+        ...rec,
+        owner: rec.owner || owner || null,
+        id: rec.id || uid(),
+        created_at: rec.created_at || Date.now()
+      };
       await cloudPut(`submissions/${encodeURIComponent(row.id)}`, row);
       try { await cloudPut(`summaries/${encodeURIComponent(row.id)}`, summaryOf(row)); }
       catch (e) { console.warn("تعذّر تحديث فهرس النسخ", e); }
@@ -654,7 +815,14 @@ const Store = (() => {
       if (isResultPatch(patch)) next.updated_at = new Date().toISOString();
       await cloudPatch(`submissions/${encodeURIComponent(id)}`, next);
       if (isResultPatch(patch)) {
-        try { await cloudPatch(`summaries/${encodeURIComponent(id)}`, summaryPatch(next)); }
+        const sp = summaryPatch(next);
+        /* الترخيص على الفهرس يتم بالمالك (owner)، فنثبّته عند التحديث
+           حتى يبقى التعديل داخل ملكية صاحب النسخة. */
+        if (!authIsAdmin) {
+          const owner = getAuthUid();
+          if (owner) sp.owner = owner;
+        }
+        try { await cloudPatch(`summaries/${encodeURIComponent(id)}`, sp); }
         catch (e) { console.warn("تعذّر تحديث فهرس النسخ", e); }
       }
       return { ...next, id };
@@ -942,6 +1110,7 @@ const Store = (() => {
     addSubmission, updateSubmission, deleteSubmission, setCloudUrl,
     getBank, saveBank, getSettings, saveSettings, resetBank,
     getLaunch, saveLaunch, clearLaunch, getSessions, updateSession, deleteSession,
+    signInAdmin, signOutAdmin, isAdminAuth, getAuthUid, getAuthEmail, changeAdminPassword,
     getLastError: () => lastError
   };
 })();
@@ -1006,6 +1175,9 @@ if (typeof window !== "undefined") {
   window.App = {
     Store, autoScoreOpen, gradePaper, esc, normalizeAr, wordCount, shuffle, uid,
     fmtDate, fmtClock, fmtDuration, scoreClass, toast, pad2, deviceId, sha256hex,
+    signInAdmin: Store.signInAdmin, signOutAdmin: Store.signOutAdmin,
+    isAdminAuth: Store.isAdminAuth, getAuthUid: Store.getAuthUid,
+    getAuthEmail: Store.getAuthEmail, changeAdminPassword: Store.changeAdminPassword,
     PLACE_LIST, findPlace, placeName, placeLabel
   };
 }

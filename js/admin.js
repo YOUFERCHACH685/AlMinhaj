@@ -6,11 +6,10 @@
 (function () {
   "use strict";
 
-  const { Store, esc, fmtDate, fmtDuration, scoreClass, toast, pad2, sha256hex, gradePaper, PLACE_LIST, placeName, placeLabel } = window.App;
+  const { Store, esc, fmtDate, fmtDuration, scoreClass, toast, pad2, gradePaper, PLACE_LIST, placeName, placeLabel } = window.App;
 
-  /* رمز الدخول مخزّن كـ SHA-256 (الرمز الافتراضي Azert1234 — انظر README لتغييره) */
-  const ACCESS_CODE_SHA256 = "841a489b150f64c3d9673eda5b7360dd28a59366ec31bc61fb0174cc3171897c";
-  const SESSION_KEY = "manhaj_admin_ok_v1";
+  /* الدخول عبر Firebase (Email/Password): لا يوجد رمز ثابت في الشيفرة.
+     القفل أدناه يبقى حاجزًا تنظيميًا على المحاولات الفاشلة. */
   const LOCK_KEY = "manhaj_admin_lock_v1";
   const MAX_TRIES = 5;
   const LOCK_MINUTES = 10;
@@ -46,14 +45,33 @@
   };
 
 /* ------------------------------------------------------------------- auth */
+/* المصادقة الحقيقية موجودة في Firebase (js/core.js). هذا الملف يتحقق
+   من وجود جلسة مشرف صالحة ويعرض الواجهة المناسبة. */
 function isAuthed() {
-  try { return sessionStorage.getItem(SESSION_KEY) === "1"; } catch (e) { return false; }
+  try { return !!(window.App && window.App.isAdminAuth && window.App.isAdminAuth()); }
+  catch (e) { return false; }
 }
-function setAuthed(v) {
-  try {
-    if (v) sessionStorage.setItem(SESSION_KEY, "1");
-    else sessionStorage.removeItem(SESSION_KEY);
-  } catch (e) { /* ignore */ }
+function adminEmail() {
+  return String((window.MANHAJ_CONFIG && window.MANHAJ_CONFIG.adminEmail) || "").trim();
+}
+function fillLoginEmail() {
+  const el = $("#login-email");
+  if (el && !el.value) el.value = adminEmail();
+}
+/* ترجمة أخطاء Firebase إلى رسائل مفهومة */
+function firebaseAuthMessage(err) {
+  const code = String((err && (err.code || err.message)) || "");
+  if (code === "NOT_ADMIN") return "هذا الحساب ليس حساب المشرف المعتمد.";
+  if (code.indexOf("ADMIN_AUTH_REQUIRED") !== -1) return "انتهت جلسة المشرف. أعد تسجيل الدخول.";
+  if (code.indexOf("INVALID_LOGIN_CREDENTIALS") !== -1 ||
+      code.indexOf("INVALID_PASSWORD") !== -1 ||
+      code.indexOf("EMAIL_NOT_FOUND") !== -1 ||
+      code.indexOf("INVALID_EMAIL") !== -1) return "البريد الإلكتروني أو كلمة المرور غير صحيحة.";
+  if (code.indexOf("USER_DISABLED") !== -1) return "هذا الحساب معطّل.";
+  if (code.indexOf("TOO_MANY_ATTEMPTS_TRY_LATER") !== -1) return "محاولات كثيرة جدًا. حاول بعد قليل.";
+  if (code.indexOf("WEAK_PASSWORD") !== -1) return "كلمة المرور الجديدة ضعيفة: 6 أحرف على الأقل.";
+  if (code.indexOf("NETWORK") !== -1) return "تعذّر الاتصال بالشبكة. تحقّق من الاتصال وحاول مجددًا.";
+  return "تعذّر إتمام العملية. تحقّق من الاتصال وحاول مجددًا.";
 }
 function lockState() {
   try { return JSON.parse(localStorage.getItem(LOCK_KEY) || "null"); } catch (e) { return null; }
@@ -205,6 +223,7 @@ function syncSeenResults(notify) {
 /* ============================================================== init / vues */
 function boot() {
   bindLogin();
+  bindPassword();
   bindTabs();
   bindSession();
   bindResults();
@@ -214,11 +233,25 @@ function boot() {
   bindCloudSettings();
   bindWord();
 
+  /* إذا رفضت Firebase الجلسة (انتهت صلاحيتها أو تغيّرت الصلاحيات)
+     نعيد المشرف إلى بوابة الدخول بدل تركه أمام لوحة لا يستطيع الكتابة فيها. */
+  window.addEventListener("manhaj-admin-auth-required", ev => {
+    stopSessionTimer();
+    show("#view-login");
+    fillLoginEmail();
+    const msg = ev && ev.detail && ev.detail.message;
+    $("#login-err").textContent = msg || "انتهت جلسة المشرف. أعد تسجيل الدخول للمتابعة.";
+    $("#login-password").value = "";
+    $("#login-password").focus();
+  });
+
+  fillLoginEmail();
+
   if (isAuthed()) {
     enterPanel();
   } else {
     show("#view-login");
-    $("#login-code").focus();
+    $("#login-password").focus();
   }
 }
 
@@ -234,31 +267,83 @@ function bindLogin() {
       $("#login-err").textContent = `تم قفل الدخول مؤقتًا. حاول بعد ${lock.minutes} دقيقة.`;
       return;
     }
-    const code = $("#login-code").value.trim();
-    const hash = await sha256hex(code);
-    if (hash === ACCESS_CODE_SHA256) {
+    const email = $("#login-email").value.trim();
+    const password = $("#login-password").value;
+    if (!email || !password) {
+      $("#login-err").textContent = "أدخل البريد الإلكتروني وكلمة المرور.";
+      return;
+    }
+    const btn = $("#login-submit");
+    if (btn) btn.disabled = true;
+    try {
+      await window.App.signInAdmin(email, password);
       clearLock();
-      setAuthed(true);
       $("#login-err").textContent = "";
-      $("#login-code").value = "";
-      enterPanel();
-    } else {
+      $("#login-password").value = "";
+      await enterPanel();
+    } catch (e) {
       const fail = registerFailure();
       $("#login-err").textContent = fail.lockedNow
         ? `تجاوزت عدد المحاولات — أُقفل الدخول لمدة ${LOCK_MINUTES} دقائق.`
-        : `رمز الدخول غير صحيح. المحاولات المتبقية قبل القفل: ${fail.left}.`;
-      $("#login-code").select();
+        : `${firebaseAuthMessage(e)} المحاولات المتبقية قبل القفل: ${fail.left}.`;
+      $("#login-password").select();
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 
   $("#btn-logout").addEventListener("click", () => {
-    setAuthed(false);
+    window.App.signOutAdmin();
     stopSessionTimer();
+    $("#login-err").textContent = "";
+    $("#login-password").value = "";
+    fillLoginEmail();
     show("#view-login");
+    $("#login-password").focus();
     toast("تمّ الخروج");
   });
 
   $("#btn-reload").addEventListener("click", () => loadAll(true));
+}
+
+/* بطاقة «أمان حساب المشرف»: تغيير كلمة مرور Firebase */
+function bindPassword() {
+  const form = $("#password-form");
+  if (!form) return;
+  const emailEl = $("#account-email");
+  const refreshEmail = () => {
+    if (emailEl) emailEl.textContent = window.App.getAuthEmail() || adminEmail() || "—";
+  };
+  refreshEmail();
+  form.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const msg = $("#password-msg");
+    const current = $("#pass-current").value;
+    const next = $("#pass-new").value;
+    const confirm = $("#pass-confirm").value;
+    const showMsg = (text, bad) => {
+      if (!msg) return;
+      msg.className = bad ? "err" : "hint";
+      msg.style.color = bad ? "" : "var(--ok)";
+      msg.textContent = text;
+    };
+    if (!current || !next) { showMsg("أدخل كلمة المرور الحالية والجديدة.", true); return; }
+    if (next.length < 6) { showMsg("كلمة المرور الجديدة يجب أن تكون 6 أحرف على الأقل.", true); return; }
+    if (next !== confirm) { showMsg("تأكيد كلمة المرور لا يطابق الكلمة الجديدة.", true); return; }
+    const btn = $("#password-submit");
+    if (btn) btn.disabled = true;
+    try {
+      await window.App.changeAdminPassword(current, next);
+      form.reset();
+      refreshEmail();
+      showMsg("تمّ تغيير كلمة المرور بنجاح.", false);
+      toast("تمّ تغيير كلمة المرور");
+    } catch (e) {
+      showMsg(firebaseAuthMessage(e), true);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
 }
 
 async function enterPanel() {

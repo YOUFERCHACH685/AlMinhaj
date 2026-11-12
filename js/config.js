@@ -16,5 +16,13 @@ window.MANHAJ_CONFIG = {
      عند تعبئته يُفعَّل تسجيل دخول مجهول تلقائيًا لكل زائر، ولا تعمل
      القاعدة إلا لمن يملك توكن صالحًا (auth != null).
      اتركه فارغًا مؤقتًا إن لم تكن قد فعّلت Anonymous في Firebase. */
-  firebaseApiKey: "AIzaSyCPQ1oHaVyLDA6wY9B43MJhMUNxa93EZ7s"
+  firebaseApiKey: "AIzaSyCPQ1oHaVyLDA6wY9B43MJhMUNxa93EZ7s",
+
+  /* حساب المشرف المعتمد (Firebase → Authentication → Email/Password).
+     البريد يُملأ تلقائيًا في نموذج الدخول، والمعرّف (UID) هو نفسه
+     المستعمل في قواعد Firebase لتقييد الكتابة على المشرف وحده.
+     كلمة المرور لا تُخزَّن في هذه الملفات: غيّرها من «الإعدادات»
+     ← «أمان حساب المشرف» داخل فضاء المشرف. */
+  adminEmail: "admin@alminhaj.local",
+  adminUid: "QafQ4Dtou0WB0VatlyJifIEwt6y2"
 };
