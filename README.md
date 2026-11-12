@@ -115,18 +115,18 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
          },
          "submissions": {
            "$id": {
-             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && newData.child('status').val() in ['waiting', 'submitted']))",
+             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))",
              "owner": {
                ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || newData.val() === auth.uid)"
              },
              "answers": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val()))"
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true))"
              },
              "progress": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val()))"
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true))"
              },
              "status": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('status').val() in ['waiting', 'submitted']))"
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))"
              },
              "final_score": {
                ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
@@ -156,12 +156,12 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
          },
          "summaries": {
            "$id": {
-             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && newData.child('status').val() in ['waiting', 'submitted']))",
+             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))",
              "owner": {
                ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || newData.val() === auth.uid)"
              },
              "status": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && !data.child('official').val() && newData.child('status').val() in ['waiting', 'submitted']))"
+               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))"
              },
              "final_score": {
                ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"

@@ -497,6 +497,18 @@ async function finishExam() {
       saved = true;
     } catch (e) {
       console.warn("Enregistrement de la copie impossible", e);
+      /* قد يكون المشرف نشر التصحيح الرسمي فنُفلت النسخة (وهي مقفلة عندها).
+         في هذه الحالة نعتبر النسخة محفوظة ونقرأ النسخة المنشورة. */
+      if (S.waitingId) {
+        try {
+          const fresh = await Store.getSubmission(S.waitingId);
+          if (fresh && fresh.finished_at &&
+              (fresh.official || fresh.status === "submitted" || fresh.status === "auto" || fresh.status === "validated")) {
+            saved = true;
+            S.finishedRec = fresh;
+          }
+        } catch (e2) { /* ignore */ }
+      }
       if (S.waitingId && attempt === 1) {
         try { await Store.addSubmission(rec); saved = true; }
         catch (e2) { console.warn("addSubmission fallback failed", e2); }
