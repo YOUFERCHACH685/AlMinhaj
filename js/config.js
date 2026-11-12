@@ -19,12 +19,16 @@ window.MANHAJ_CONFIG = {
   firebaseApiKey: "AIzaSyCPQ1oHaVyLDA6wY9B43MJhMUNxa93EZ7s",
 
   /* حساب المشرف المعتمد (Firebase → Authentication → Email/Password).
-     البريد يُملأ تلقائيًا في نموذج الدخول، والمعرّف (UID) هو نفسه
-     المستعمل في قواعد Firebase لتقييد الكتابة على المشرف وحده.
+     البريد يُملأ تلقائيًا في نموذج الدخول، والمعرّفات (UID) هي نفسها
+     المستعملة في قواعد Firebase لتقييد الكتابة على المشرف وحده.
      كلمة المرور لا تُخزَّن في هذه الملفات: غيّرها من «الإعدادات»
-     ← «أمان حساب المشرف» داخل فضاء المشرف. */
-  adminEmail: "admin@alminhaj.local",
-  adminUid: "QafQ4Dtou0WB0VatlyJifIEwt6y2",
+     ← «أمان حساب المشرف» داخل فضاء المشرف.
+     يمكن تسجيل أكثر من مشرف: أضف معرّفه (UID) إلى adminUids. */
+  adminEmail: "yo.ferchach@gmail.com",
+  adminUids: [
+    "hdsrJmw4ekaElK9939s6DsK4Rtf1",  /* yo.ferchach@gmail.com */
+    "QafQ4Dtou0WB0VatlyJifIEwt6y2"   /* admin@alminhaj.local — حساب احتياطي */
+  ],
 
   /* نطاق البريد الذي يُشتق منه حساب المترشح من «رمز المترشح». */
   candidateDomain: "manhaj.local",

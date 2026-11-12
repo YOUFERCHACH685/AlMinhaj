@@ -281,7 +281,9 @@ const Store = (() => {
   const AUTH_KEY = "manhaj_firebase_auth_v1";          /* anonymous — localStorage */
   const CAND_AUTH_KEY = "manhaj_firebase_candidate_v1"; /* candidate — localStorage */
   const ADMIN_AUTH_KEY = "manhaj_firebase_admin_v1";   /* admin — sessionStorage */
-  const ADMIN_UID = String(CFG.adminUid || "").trim();
+  const ADMIN_UIDS = Array.isArray(CFG.adminUids)
+    ? CFG.adminUids.map(u => String(u || "").trim()).filter(Boolean)
+    : (CFG.adminUid ? [String(CFG.adminUid).trim()] : []);
   const CAND_DOMAIN = String(CFG.candidateDomain || "manhaj.local").trim();
   let authToken = "";
   let authRefresh = "";
@@ -435,7 +437,7 @@ const Store = (() => {
       `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
       { email: String(email || "").trim(), password: String(password || ""), returnSecureToken: true }
     );
-    if (ADMIN_UID && j.localId !== ADMIN_UID) {
+    if (ADMIN_UIDS.length && ADMIN_UIDS.indexOf(j.localId) === -1) {
       const err = new Error("هذا الحساب ليس حساب المشرف المعتمد.");
       err.code = "NOT_ADMIN";
       throw err;

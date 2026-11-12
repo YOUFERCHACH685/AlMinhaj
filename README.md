@@ -103,7 +103,7 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
 
 1. Firebase Console → **Authentication** → **Sign-in method** → فعّل **Email/Password** (وAnonymous اختياريًا).
 2. Project settings → General → انسخ **Web API key** وضعه في `firebaseApiKey` داخل `js/config.js`.
-3. Authentication → **Users** → **Add user**: أنشئ حساب المشرف (بريد + كلمة مرور مؤقتة)، ثم انسخ **UID** وضعه في `adminUid` داخل `js/config.js` (وإن غيّرت البريد فعدّل `adminEmail` أيضًا).
+3. Authentication → **Users** → **Add user**: أنشئ حساب المشرف (بريد + كلمة مرور مؤقتة)، ثم انسخ **UID** وضعه في `adminUids` داخل `js/config.js` (وإن غيّرت البريد فعدّل `adminEmail` أيضًا). يمكن تسجيل أكثر من مشرف؛ والحساب في القائمة هو نفسه المأذون في قواعد Firebase.
 4. في **Realtime Database → Rules** الصق محتوى `firebase-rules.json` ثم **Publish**:
    ```json
    {
@@ -111,81 +111,81 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
        "manhaj": {
          ".read": "auth != null",
          "config": {
-           ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+           ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
          },
          "submissions": {
            "$id": {
-             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))",
+             ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))",
              "owner": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || newData.val() === auth.uid)"
+               ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || newData.val() === auth.uid)"
              },
              "answers": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true))"
+               ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true))"
              },
              "progress": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true))"
+               ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true))"
              },
              "status": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))"
+               ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))"
              },
              "final_score": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "percent": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "mcq_score": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "open_score": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "official": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "official_at": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "graded_by": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "graded_note": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              }
            }
          },
          "summaries": {
            "$id": {
-             ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))",
+             ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && newData.child('final_score').val() == data.child('final_score').val() && newData.child('percent').val() == data.child('percent').val() && newData.child('mcq_score').val() == data.child('mcq_score').val() && newData.child('open_score').val() == data.child('open_score').val() && newData.child('official').val() == data.child('official').val() && newData.child('official_at').val() == data.child('official_at').val() && newData.child('graded_by').val() == data.child('graded_by').val() && newData.child('graded_note').val() == data.child('graded_note').val() && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))",
              "owner": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || newData.val() === auth.uid)"
+               ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || newData.val() === auth.uid)"
              },
              "status": {
-               ".write": "auth != null && (auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2' || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))"
+               ".write": "auth != null && ((auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2') || (((!data.exists() && newData.child('owner').val() === auth.uid) || (data.exists() && data.child('owner').val() === auth.uid && newData.child('owner').val() === auth.uid)) && data.child('official').val() != true && (newData.child('status').val() === 'waiting' || newData.child('status').val() === 'submitted')))"
              },
              "final_score": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "percent": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "mcq_score": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "open_score": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "official": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "official_at": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "graded_by": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              },
              "graded_note": {
-               ".write": "auth != null && auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2'"
+               ".write": "auth != null && (auth.uid === 'hdsrJmw4ekaElK9939s6DsK4Rtf1' || auth.uid === 'QafQ4Dtou0WB0VatlyJifIEwt6y2')"
              }
            }
          }
@@ -212,7 +212,7 @@ js/gate.js            قفل صفحتَي المشرف (نفس رمز المشر
 - **قبل نشر التصحيح** يرى المترشح «النتيجة قيد التصحيح» فقط — لا تُعرض أي نقطة محسوبة في متصفّحه.
 - **هوية المترشح مرتبطة برمزه لا بمتصفّحه**: الرمز هو بيانات الدخول في Firebase، فالمعرّف واحد على كل الأجهزة. مسح بيانات المتصفّح أو تغيير الهاتف لا يُنشئ هوية جديدة ولا يمنع استئناف النسخة.
 - **أكواد المترشحين**: يوزّعها المشرف من فضاء المشرف، وتُحفظ في متصفّح المشرف فقط (لا تصل إلى الخادم؛ تُحفظ في النسخة **بصمة** مجزّأة `code_hash` فقط).
-- **دخول المشرف عبر Firebase**: لا يوجد «رمز دخول» ثابت في الشيفرة ولا في المتصفح. المصادقة (بريد + كلمة مرور) تجري في Firebase، وصلاحيات الكتابة مربوطة بمعرّف الحساب (`uid`)، وجلسة المشرف تنتهي بإغلاق التبويب.
+- **دخول المشرف عبر Firebase**: لا يوجد «رمز دخول» ثابت في الشيفرة ولا في المتصفح. المصادقة (بريد + كلمة مرور) تجري في Firebase، وصلاحيات الكتابة مربوطة بمعرّف الحساب (`uid`) في `adminUids`، وجلسة المشرف تنتهي بإغلاق التبويب. **يمكن وجود أكثر من مشرف**: أضف UID كل حساب إلى `adminUids` (وفي القواعد نفسها).
 - بعد **5 محاولات خاطئة** يُقفل الدخول **10 دقائق** (مفتاح التخزين `manhaj_admin_lock_v1`).
 - **تغيير كلمة المرور**: من «الإعدادات» ← «أمان حساب المشرف» (يتطلب الكلمة الحالية ويحدّث حساب Firebase مباشرة).
 - **الصفحات المحمية برمز** (`epreuves.html` و`corrige.html` عبر `js/gate.js`) ما زالت تستعمل الرمز المحلي SHA-256 لأنها صفحات طباعة. الرمز الافتراضي `Azert1234` — غيّره قبل أي استعمال حقيقي.
