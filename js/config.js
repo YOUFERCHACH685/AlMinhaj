@@ -10,5 +10,11 @@ window.MANHAJ_CONFIG = {
   firebaseUrl: "https://alminhaj-test-default-rtdb.europe-west1.firebasedatabase.app",
 
   /* جذر البيانات داخل قاعدة Firebase (غيّره إذا أردت عزْل اختبار آخر). */
-  firebaseRoot: "manhaj"
+  firebaseRoot: "manhaj",
+
+  /* مفتاح Firebase Web API (يُنسخ من Project settings → General).
+     عند تعبئته يُفعَّل تسجيل دخول مجهول تلقائيًا لكل زائر، ولا تعمل
+     القاعدة إلا لمن يملك توكن صالحًا (auth != null).
+     اتركه فارغًا مؤقتًا إن لم تكن قد فعّلت Anonymous في Firebase. */
+  firebaseApiKey: "AIzaSyCPQ1oHaVyLDA6wY9B43MJhMUNxa93EZ7s"
 };

@@ -270,10 +270,100 @@ const Store = (() => {
     return ok;
   }
 
+  /* ---------------------------------------------------- Firebase Auth
+     عند وجود firebaseApiKey نسجّل دخولًا مجهولًا تلقائيًا ونضيف
+     idToken إلى كل طلب REST (?auth=...). هذا يسمح بقواعد أمان
+     ترفض أي وصول غير موثّق. */
+  const FIREBASE_API_KEY = String(CFG.firebaseApiKey || "").trim();
+  const AUTH_KEY = "manhaj_firebase_auth_v1";
+  let authToken = "";
+  let authRefresh = "";
+  let authExpiresAt = 0;
+  let authPromise = null;
+
+  function loadAuth() {
+    if (authToken) return;
+    try {
+      const raw = sessionStorage.getItem(AUTH_KEY);
+      if (!raw) return;
+      const j = JSON.parse(raw);
+      if (j && j.idToken) {
+        authToken = j.idToken;
+        authRefresh = j.refreshToken || "";
+        authExpiresAt = Number(j.expiresAt || 0);
+      }
+    } catch (e) { /* ignore */ }
+  }
+  function saveAuth() {
+    try {
+      sessionStorage.setItem(AUTH_KEY, JSON.stringify({
+        idToken: authToken, refreshToken: authRefresh, expiresAt: authExpiresAt
+      }));
+    } catch (e) { /* ignore */ }
+  }
+  function clearAuth() {
+    authToken = "";
+    authRefresh = "";
+    authExpiresAt = 0;
+    try { sessionStorage.removeItem(AUTH_KEY); } catch (e) { /* ignore */ }
+  }
+  async function authRequest(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const code = json && json.error && json.error.message ? json.error.message : `HTTP ${res.status}`;
+      const err = new Error(`تعذّر تسجيل الدخول إلى Firebase (${code}).`);
+      err.status = res.status;
+      throw err;
+    }
+    return json;
+  }
+  async function ensureAuth() {
+    if (!FIREBASE_API_KEY) return null;
+    if (authToken && Date.now() < authExpiresAt - 60000) return authToken;
+    if (authPromise) return authPromise;
+    authPromise = (async () => {
+      loadAuth();
+      if (authToken && Date.now() < authExpiresAt - 60000) return authToken;
+      if (authToken && authRefresh) {
+        try {
+          const j = await authRequest(
+            `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
+            { grant_type: "refresh_token", refresh_token: authRefresh }
+          );
+          authToken = j.id_token || j.access_token || "";
+          authRefresh = j.refresh_token || authRefresh;
+          authExpiresAt = Date.now() + Number(j.expires_in || 3600) * 1000;
+          saveAuth();
+          return authToken;
+        } catch (e) {
+          clearAuth();
+        }
+      }
+      const j = await authRequest(
+        `https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${encodeURIComponent(FIREBASE_API_KEY)}`,
+        { returnSecureToken: true }
+      );
+      authToken = j.idToken;
+      authRefresh = j.refreshToken || "";
+      authExpiresAt = Date.now() + Number(j.expiresIn || 3600) * 1000;
+      saveAuth();
+      return authToken;
+    })();
+    try { return await authPromise; }
+    finally { authPromise = null; }
+  }
+
   let lastError = null;
   function cloudUrl(path) {
     const clean = String(path).replace(/^\/+/, "").replace(/\/+$/, "");
-    return `${CLOUD_BASE}/${CLOUD_ROOT}/${clean}.json`;
+    const auth = authToken ? `?auth=${encodeURIComponent(authToken)}` : "";
+    return `${CLOUD_BASE}/${CLOUD_ROOT}/${clean}.json${auth}`;
   }
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   async function cloudRequest(path, options) {
@@ -283,6 +373,7 @@ const Store = (() => {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 15000);
       try {
+        if (FIREBASE_API_KEY) await ensureAuth();
         const res = await fetch(cloudUrl(path), {
           method: opts.method || "GET",
           cache: "no-store",
@@ -295,6 +386,14 @@ const Store = (() => {
           lastError = null;
           const text = await res.text();
           return text ? JSON.parse(text) : null;
+        }
+        /* قد يكون التوكن منتهيًا: نمسحه ونعيد المحاولة مرة واحدة */
+        if ((res.status === 401 || res.status === 403) && FIREBASE_API_KEY && attempt === 0) {
+          clearAuth();
+          lastErr = new Error("تعذّر الوصول إلى Firebase: قواعد الأمان ترفض القراءة/الكتابة (401/403).");
+          lastErr.status = res.status;
+          await sleep(300);
+          continue;
         }
         const err = new Error(
           res.status === 401 || res.status === 403

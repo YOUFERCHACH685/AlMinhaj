@@ -1,0 +1,8 @@
+{
+  "rules": {
+    "manhaj": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    }
+  }
+}
