@@ -6,7 +6,7 @@
 (function () {
   "use strict";
 
-  const { Store, esc, fmtDate, fmtDuration, scoreClass, toast, pad2, gradePaper, PLACE_LIST, placeName, placeLabel } = window.App;
+  const { Store, esc, fmtDate, fmtDuration, scoreClass, toast, pad2, uid, gradePaper, PLACE_LIST, placeName, placeLabel } = window.App;
 
   /* الدخول عبر Firebase (Email/Password): لا يوجد رمز ثابت في الشيفرة.
      القفل أدناه يبقى حاجزًا تنظيميًا على المحاولات الفاشلة. */
@@ -1310,6 +1310,186 @@ async function removeRow(id) {
   }
 }
 
+/* ------------------------------------------------------- أدوات التحرير */
+
+/* التاريخ/الوقت بصيغة الحقل datetime-local */
+function toLocalInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function fromLocalInput(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/* قوائم الاختيار (الجلسات، الأماكن، النماذج، الحالات) */
+function sessionOptionsHtml(selectedId) {
+  const list = (A.sessions || []).slice();
+  if (A.launch && !list.some(s => s.id === A.launch.id)) list.unshift(A.launch);
+  const opts = list.map(s => {
+    const b = sessionBadge(s);
+    return `<option value="${esc(s.id)}" ${s.id === selectedId ? "selected" : ""}>${esc(s.label)} — ${esc(b.text)}</option>`;
+  }).join("");
+  return `<option value="" ${!selectedId ? "selected" : ""}>— بدون جلسة —</option>` + opts;
+}
+function placeOptionsHtml(selectedCode) {
+  return `<option value="" ${!selectedCode ? "selected" : ""}>— بدون مكان —</option>` +
+    PLACE_LIST.map(p => `<option value="${esc(p.code)}" ${p.code === selectedCode ? "selected" : ""}>${esc(p.code)} — ${esc(p.name)}</option>`).join("");
+}
+function formOptionsHtml(selected) {
+  const forms = (A.bank && A.bank.forms) || {};
+  return Object.keys(forms).map(k => {
+    const label = (forms[k] && forms[k].label) || k;
+    return `<option value="${esc(k)}" ${k === selected ? "selected" : ""}>${esc(label)}</option>`;
+  }).join("");
+}
+const STATUS_LIST = [
+  ["submitted", "منتهية — في انتظار التصحيح"],
+  ["auto", "منتهية — تصحيح آلي"],
+  ["validated", "منتهية — نقطة مثبّتة"],
+  ["waiting", "في الانتظار"]
+];
+function statusOptionsHtml(selected) {
+  return STATUS_LIST.map(([v, t]) =>
+    `<option value="${esc(v)}" ${v === selected ? "selected" : ""}>${esc(t)}</option>`).join("");
+}
+
+/* محرّر الأجوبة: اختيار من متعدد / تعبير */
+function answerEditorHtml(formObj, answers) {
+  if (!formObj || !Array.isArray(formObj.questions) || !formObj.questions.length) {
+    return `<div class="table-empty">لا توجد أسئلة في هذا النموذج.</div>`;
+  }
+  const letters = ["أ", "ب", "ج", "د", "هـ", "و"];
+  return formObj.questions.map((q, i) => {
+    const a = (answers && answers[q.id]) || {};
+    if (q.type === "mcq") {
+      const opts = (q.options || []).map((o, oi) =>
+        `<option value="${esc(o.id)}" ${a.choice === o.id ? "selected" : ""}>${esc(letters[oi] || o.id)} — ${esc(o.text)}</option>`
+      ).join("");
+      return `<div class="edit-q">
+        <div class="small muted">${i + 1}. ${esc(q.topic || "")}</div>
+        <div class="qt">${esc(q.text || "")}</div>
+        <select class="edit-mcq" data-qid="${esc(q.id)}">
+          <option value="" ${!a.choice ? "selected" : ""}>— بلا إجابة —</option>
+          ${opts}
+        </select>
+      </div>`;
+    }
+    return `<div class="edit-q">
+      <div class="small muted">${i + 1}. ${esc(q.topic || "")} — تعبير</div>
+      <div class="qt">${esc(q.text || "")}</div>
+      <textarea class="edit-open" data-qid="${esc(q.id)}" rows="3" placeholder="إجابة المترشح…">${esc(a.text || "")}</textarea>
+    </div>`;
+  }).join("");
+}
+
+/* قراءة أجوبة المحرّر */
+function readAnswerEditor(formObj, root) {
+  const answers = {};
+  if (!formObj || !Array.isArray(formObj.questions)) return answers;
+  formObj.questions.forEach(q => {
+    const sel = root.querySelector('.edit-mcq[data-qid="' + CSS.escape(q.id) + '"]');
+    const ta = root.querySelector('.edit-open[data-qid="' + CSS.escape(q.id) + '"]');
+    if (q.type === "mcq") answers[q.id] = { choice: (sel && sel.value) ? sel.value : null };
+    else answers[q.id] = { text: ta ? ta.value : "" };
+  });
+  return answers;
+}
+
+/* نموذج تعديل بيانات نسخة موجودة */
+function editFormHtml(row) {
+  const formKey = row.form && (A.bank.forms && A.bank.forms[row.form]) ? row.form : "A";
+  const formObj = (A.bank.forms && A.bank.forms[formKey]) || A.bank.forms.A;
+  const answers = answersFromRow(row, formObj);
+  return `
+    <details class="rule-box edit-details" id="edit-details">
+      <summary><b>تعديل بيانات النسخة</b> — الاسم، المكان، النموذج، الجلسة، الأجوبة…</summary>
+      <form id="edit-form" novalidate style="margin-top:14px">
+        <div class="field-row">
+          <label class="field"><span>الاسم العائلي</span>
+            <input type="text" id="e-last" value="${esc(row.candidate_last || "")}" maxlength="40"></label>
+          <label class="field"><span>الاسم الشخصي</span>
+            <input type="text" id="e-first" value="${esc(row.candidate_first || "")}" maxlength="40"></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>المكان</span>
+            <select id="e-place">${placeOptionsHtml(row.place_code)}</select></label>
+          <label class="field"><span>النموذج</span>
+            <select id="e-form">${formOptionsHtml(formKey)}</select></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>الجلسة</span>
+            <select id="e-session">${sessionOptionsHtml(row.session_id)}</select></label>
+          <label class="field"><span>حالة النسخة</span>
+            <select id="e-status">${statusOptionsHtml(row.status || "submitted")}</select></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>وقت البدء</span>
+            <input type="datetime-local" id="e-started" value="${toLocalInput(row.started_at)}"></label>
+          <label class="field"><span>وقت الإنهاء</span>
+            <input type="datetime-local" id="e-finished" value="${toLocalInput(row.finished_at)}"></label>
+        </div>
+        <label class="field"><span>المدة (بالثواني)</span>
+          <input type="number" id="e-duration" min="0" max="86400" step="1" value="${Number(row.duration_sec || 0)}"></label>
+        <h3 style="font-size:.98rem;margin:16px 0 8px">أجوبة المترشح</h3>
+        <div id="edit-answers">${answerEditorHtml(formObj, answers)}</div>
+        <p class="hint" style="margin-top:10px">تُعاد النقاط تلقائيًا بعد الحفظ من بنك الأسئلة (المصدر الموثوق).</p>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="btn" type="submit">حفظ التعديلات</button>
+          <button class="btn btn-ghost" type="button" id="edit-cancel">إلغاء</button>
+        </div>
+      </form>
+    </details>`;
+}
+
+/* حفظ تعديلات نسخة */
+async function saveEditedRow(row, form) {
+  const formKey = $("#e-form").value;
+  const fObj = (A.bank.forms && A.bank.forms[formKey]) || A.bank.forms.A;
+  const answers = readAnswerEditor(fObj, form);
+  const graded = gradePaper(fObj, answers);
+  const place = PLACE_LIST.find(p => p.code === $("#e-place").value);
+  const last = $("#e-last").value.trim();
+  const first = $("#e-first").value.trim();
+  if (!last || !first) throw new Error("الاسم مطلوب");
+  const started = fromLocalInput($("#e-started").value) || row.started_at || null;
+  const finished = fromLocalInput($("#e-finished").value) || row.finished_at || null;
+  const patch = {
+    candidate_first: first,
+    candidate_last: last,
+    place_code: place ? place.code : "",
+    place_name: place ? place.name : "",
+    form: formKey,
+    session_id: $("#e-session").value || null,
+    status: $("#e-status").value,
+    started_at: started,
+    finished_at: finished,
+    duration_sec: Math.max(0, Number($("#e-duration").value || 0)),
+    mcq_score: graded.mcq,
+    open_score: graded.open,
+    final_score: graded.total,
+    percent: graded.percent,
+    graded_by: "manual",
+    official: true,
+    official_at: new Date().toISOString(),
+    answers: JSON.stringify(officialAnswersPayload(formKey, fObj, graded, {
+      session_id: $("#e-session").value || null,
+      device_id: row.device_id
+    }))
+  };
+  await Store.updateSubmission(row.id, patch);
+  A.rows = await Store.listSubmissions();
+  updatePanelSub();
+  renderSession();
+  fillResultFilters();
+  renderResults();
+  renderDash();
+}
+
 /* ---------------------------------------------------------------- détail + notation */
 function openDetail(id) {
   const row = A.rows.find(r => r.id === id);
@@ -1392,6 +1572,9 @@ function openDetail(id) {
         </div>
       </form>
 
+      ${editFormHtml(row)}
+
+
       <h3 style="font-size:1rem">أجوبته وتصحيحها</h3>
       <div>${items}</div>
     </div>
@@ -1406,6 +1589,39 @@ function openDetail(id) {
     setTimeout(cleanup, 15000);
     window.print();
   });
+  /* تبديل النموذج: تُعاد كتابة محرّر الأجوبة */
+  const eFormSel = $("#e-form");
+  if (eFormSel) eFormSel.addEventListener("change", () => {
+    const key = eFormSel.value;
+    const fObj = (A.bank.forms && A.bank.forms[key]) || A.bank.forms.A;
+    const host = $("#edit-answers");
+    if (host) host.innerHTML = answerEditorHtml(fObj, {});
+  });
+
+  const editFormEl = $("#edit-form");
+  if (editFormEl) {
+    const cancelBtn = $("#edit-cancel");
+    if (cancelBtn) cancelBtn.addEventListener("click", () => {
+      const det = $("#edit-details");
+      if (det) det.open = false;
+    });
+    editFormEl.addEventListener("submit", async ev => {
+      ev.preventDefault();
+      const btn = editFormEl.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+      try {
+        await saveEditedRow(row, editFormEl);
+        closeModal();
+        toast("حُفظت تعديلات النسخة");
+      } catch (e) {
+        console.error(e);
+        toast(e && e.message ? e.message : "تعذّر حفظ التعديلات", true);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
   $("#grade-form").addEventListener("submit", async ev => {
     ev.preventDefault();
     const openMax = g.openMax || 40;
@@ -1434,6 +1650,136 @@ function openDetail(id) {
       toast("ثُبّتت النقطة");
     } catch (e) {
       toast("تعذّر الحفظ", true);
+    }
+  });
+}
+
+/* ================================================== إضافة مترشح يدويًا
+   يضيف المشرف نسخة (بأجوبتها) إلى أي جلسة — حتى المنتهية —
+   وتُنشر نقطتها فورًا لأن المشرف هو من يكتب النقاط. */
+function openAddCandidate() {
+  const now = new Date().toISOString();
+  const formA = (A.bank && A.bank.forms && A.bank.forms.A) || { questions: [] };
+  const root = $("#modal-root");
+  root.innerHTML = `<div class="modal-backdrop" id="backdrop">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="m-title">
+      <div class="modal-head">
+        <div>
+          <h2 id="m-title" style="margin:0;font-size:1.2rem">إضافة مترشح وأجوبته</h2>
+          <p class="small muted" style="margin:4px 0 0">تُضاف النسخة إلى الجلسة المختارة — حتى المنتهية — وتُنشر نقطتها فورًا.</p>
+        </div>
+        <button class="modal-close" type="button" id="m-close" aria-label="إغلاق">✕</button>
+      </div>
+      <form id="add-form" novalidate>
+        <div class="field-row">
+          <label class="field"><span>الاسم العائلي *</span>
+            <input type="text" id="a-last" maxlength="40" required></label>
+          <label class="field"><span>الاسم الشخصي *</span>
+            <input type="text" id="a-first" maxlength="40" required></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>المكان</span>
+            <select id="a-place">${placeOptionsHtml("")}</select></label>
+          <label class="field"><span>النموذج</span>
+            <select id="a-form">${formOptionsHtml("A")}</select></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>الجلسة</span>
+            <select id="a-session">${sessionOptionsHtml(A.launch ? A.launch.id : "")}</select></label>
+          <label class="field"><span>حالة النسخة</span>
+            <select id="a-status">${statusOptionsHtml("auto")}</select></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>وقت البدء</span>
+            <input type="datetime-local" id="a-started" value="${toLocalInput(now)}"></label>
+          <label class="field"><span>وقت الإنهاء</span>
+            <input type="datetime-local" id="a-finished" value="${toLocalInput(now)}"></label>
+        </div>
+        <label class="field"><span>المدة (بالثواني)</span>
+          <input type="number" id="a-duration" min="0" max="86400" step="1" value="0"></label>
+        <details class="rule-box edit-details" open>
+          <summary><b>أجوبة المترشح</b> — اتركها فارغة إن أردت نسخة بنقطة صفر</summary>
+          <div id="add-answers" style="margin-top:12px">${answerEditorHtml(formA, {})}</div>
+        </details>
+        <div class="btn-row" style="margin-top:14px">
+          <button class="btn" type="submit">إضافة النسخة</button>
+          <button class="btn btn-ghost" type="button" id="add-cancel">إلغاء</button>
+        </div>
+      </form>
+    </div>
+  </div>`;
+
+  $("#m-close").addEventListener("click", closeModal);
+  $("#backdrop").addEventListener("click", ev => { if (ev.target.id === "backdrop") closeModal(); });
+  const cancelBtn = $("#add-cancel");
+  if (cancelBtn) cancelBtn.addEventListener("click", closeModal);
+
+  const aFormSel = $("#a-form");
+  if (aFormSel) aFormSel.addEventListener("change", () => {
+    const key = aFormSel.value;
+    const fObj = (A.bank.forms && A.bank.forms[key]) || A.bank.forms.A;
+    const host = $("#add-answers");
+    if (host) host.innerHTML = answerEditorHtml(fObj, {});
+  });
+
+  const addForm = $("#add-form");
+  if (!addForm) return;
+  addForm.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const btn = addForm.querySelector('button[type="submit"]');
+    if (btn) btn.disabled = true;
+    try {
+      const last = $("#a-last").value.trim();
+      const first = $("#a-first").value.trim();
+      if (!last || !first) throw new Error("الاسم العائلي والاسم الشخصي مطلوبان");
+      const formKey = $("#a-form").value;
+      const fObj = (A.bank.forms && A.bank.forms[formKey]) || A.bank.forms.A;
+      const answers = readAnswerEditor(fObj, addForm);
+      const graded = gradePaper(fObj, answers);
+      const place = PLACE_LIST.find(p => p.code === $("#a-place").value);
+      const sessionId = $("#a-session").value || null;
+      const rec = {
+        id: uid(),
+        candidate_first: first,
+        candidate_last: last,
+        place_code: place ? place.code : "",
+        place_name: place ? place.name : "",
+        form: formKey,
+        session_id: sessionId,
+        device_id: "manual-" + Date.now(),
+        code_hash: "",
+        started_at: fromLocalInput($("#a-started").value) || now,
+        finished_at: fromLocalInput($("#a-finished").value) || now,
+        duration_sec: Math.max(0, Number($("#a-duration").value || 0)),
+        joined_at: now,
+        mcq_score: graded.mcq,
+        open_score: graded.open,
+        final_score: graded.total,
+        percent: graded.percent,
+        status: $("#a-status").value,
+        graded_by: "manual",
+        official: true,
+        official_at: new Date().toISOString(),
+        graded_note: "إضافة يدوية من طرف المشرف",
+        answers: JSON.stringify(officialAnswersPayload(formKey, fObj, graded, {
+          session_id: sessionId,
+          device_id: "manual"
+        }))
+      };
+      await Store.addSubmission(rec);
+      A.rows = await Store.listSubmissions();
+      updatePanelSub();
+      renderSession();
+      fillResultFilters();
+      renderResults();
+      renderDash();
+      closeModal();
+      toast("أُضيفت النسخة");
+    } catch (e) {
+      console.error(e);
+      toast(e && e.message ? e.message : "تعذّرت إضافة النسخة", true);
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 }
@@ -1943,6 +2289,9 @@ function bindCloudSettings() {
 /* ============================================================ SESSION / LANCEMENT */
 function bindSession() {
   $("#btn-create-session").addEventListener("click", createSession);
+  $("#btn-add-candidate").addEventListener("click", openAddCandidate);
+  const addBtn2 = $("#btn-add-candidate-2");
+  if (addBtn2) addBtn2.addEventListener("click", openAddCandidate);
   $("#btn-launch").addEventListener("click", launchNow);
   $("#btn-close-session").addEventListener("click", closeSession);
   $("#btn-refresh-waiting").addEventListener("click", () => refreshSessionData(true, true));
@@ -2063,21 +2412,41 @@ async function finalizeAbandoned(sessionId) {
    النقط لا يكتبها المترشح إطلاقًا (قواعد Firebase تمنع ذلك).
    هنا يعيد المشرف حساب النقط من بنك الأسئلة — وهو المصدر الموثوق —
    اعتمادًا على أجوبة المترشح، ثم ينشرها في نسخته. */
-function officialGrade(row) {
-  const formKey = row.form || "A";
-  const formObj = A.bank && A.bank.forms && A.bank.forms[formKey];
-  if (!formObj || !Array.isArray(formObj.questions) || !formObj.questions.length) return null;
+
+/* استخراج أجوبة المترشح من تفاصيل نسخته */
+function answersFromRow(row, formObj) {
   const data = parseAnswers(row);
   const details = Array.isArray(data.details) ? data.details : [];
-  /* نعيد بناء أجوبة المترشح من تفاصيل نسخته */
   const answers = {};
+  if (!formObj || !Array.isArray(formObj.questions)) return answers;
   formObj.questions.forEach(q => {
     const d = details.find(x => x.qid === q.id);
     if (!d) return;
     if (q.type === "mcq") answers[q.id] = { choice: d.given || null };
     else answers[q.id] = { text: d.openText || "" };
   });
-  const graded = gradePaper(formObj, answers);
+  return answers;
+}
+
+/* حمولة «answers» الرسمية (تفاصيل + صورة الأسئلة + الإعدادات) */
+function officialAnswersPayload(formKey, formObj, graded, row) {
+  const settings = A.settings || {};
+  return {
+    bankVersion: A.bank ? A.bank.version : null,
+    form: formKey,
+    sessionId: row ? row.session_id : null,
+    deviceId: row ? row.device_id : null,
+    details: graded.details,
+    snapshot: snapshotFromBank(formObj, graded),
+    settings: { mcqSeconds: settings.mcqSeconds, openSeconds: settings.openSeconds }
+  };
+}
+
+function officialGrade(row) {
+  const formKey = row.form || "A";
+  const formObj = A.bank && A.bank.forms && A.bank.forms[formKey];
+  if (!formObj || !Array.isArray(formObj.questions) || !formObj.questions.length) return null;
+  const graded = gradePaper(formObj, answersFromRow(row, formObj));
   return { formKey, formObj, graded };
 }
 
@@ -2103,15 +2472,7 @@ async function publishOfficialScores() {
         official: true,
         official_at: new Date().toISOString(),
         graded_note: "تصحيح رسمي من طرف المشرف",
-        answers: JSON.stringify({
-          bankVersion: A.bank.version,
-          form: og.formKey,
-          sessionId: r.session_id,
-          deviceId: r.device_id,
-          details: graded.details,
-          snapshot: snapshotFromBank(og.formObj, graded),
-          settings: { mcqSeconds: settings.mcqSeconds, openSeconds: settings.openSeconds }
-        })
+        answers: JSON.stringify(officialAnswersPayload(og.formKey, og.formObj, graded, r))
       });
       done++;
     } catch (e) {

@@ -207,7 +207,9 @@ label.field > span {
 }
 label.field .req { color: var(--danger); }
 
-input[type="text"], input[type="number"], input[type="password"], textarea, select {
+input[type="text"], input[type="number"], input[type="password"], input[type="email"],
+input[type="search"], input[type="tel"], input[type="date"], input[type="time"],
+input[type="datetime-local"], input[type="url"], textarea, select {
   width: 100%;
   font-family: inherit;
   font-size: 1rem;
@@ -864,6 +866,98 @@ footer.site-foot a { color: var(--green-700); text-decoration: none; }
   a { color: inherit; text-decoration: none; }
 }
 
+
+/* ================================================== محرّر بيانات المترشح */
+.edit-details { margin-bottom: 16px; }
+.edit-details > summary {
+  cursor: pointer;
+  font-weight: 700;
+  font-size: .95rem;
+  line-height: 1.6;
+}
+.edit-details[open] > summary { margin-bottom: 12px; }
+.edit-q {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  background: #fdfcfa;
+}
+.edit-q + .edit-q { margin-top: 10px; }
+.edit-q .qt { font-weight: 700; font-size: .95rem; margin: 2px 0 8px; line-height: 1.6; }
+.edit-q select,
+.edit-q textarea {
+  width: 100%;
+  font-family: inherit;
+  font-size: .95rem;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.edit-q textarea { resize: vertical; min-height: 76px; line-height: 1.7; }
+
+/* ============================================================== الهاتف */
+@media (max-width: 640px) {
+  /* حجم خط 16px يمنع تكبير iOS التلقائي عند التركيز على الحقل */
+  input, select, textarea { font-size: 16px !important; }
+
+  .wrap { padding: 0 12px; }
+  .field { margin-bottom: 12px; }
+  label.field > span { font-size: .88rem; }
+  .field-row { gap: 10px; }
+
+  /* النوافذ المنبثقة: شاشة كاملة بلا حشو ثقيل */
+  .modal-backdrop { padding: 0; align-items: stretch; }
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100vh;
+    height: auto;
+    min-height: 100vh;
+    border-radius: 0;
+    padding: 16px 14px 32px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .modal-head { margin-bottom: 10px; }
+  .modal-head h2 { font-size: 1.05rem !important; }
+
+  /* المؤشرات: عمودان بدل خمسة */
+  .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .kpi { padding: 10px 12px; }
+  .kpi .v { font-size: 1.2rem; }
+  .kpi .k { font-size: .72rem; }
+
+  /* شريط تبويبات المشرف */
+  .admin-nav { gap: 0; margin-bottom: 16px; }
+  .admin-nav button { padding: 9px 10px; font-size: .84rem; }
+
+  /* الجداول: تمرير أفقي باللمس + ظل يوحي بالتمرير */
+  .table-scroll { -webkit-overflow-scrolling: touch; }
+  table.data { min-width: 560px; }
+  table.data th, table.data td { padding: 9px 10px; }
+
+  /* بطاقات المراجعة والتصحيح */
+  .review-item { padding: 13px 14px; }
+  .review-item .head { flex-wrap: wrap; }
+  .answer-line { font-size: .86rem; padding: 7px 10px; }
+  .quote-block { padding: 9px 12px; font-size: .85rem; }
+
+  /* الأزرار: مساحة لمس مريحة */
+  .btn { padding: 11px 13px; font-size: .93rem; }
+  .btn-sm { padding: 8px 11px; }
+  .btn-row { gap: 8px; }
+
+  /* النصوص المساعدة */
+  .paper-meta { gap: 6px 10px; font-size: .78rem; }
+  .hint { font-size: .82rem; }
+  .callout { padding: 11px 13px; font-size: .88rem; }
+
+  /* قوائم الانتظار والمتابعة */
+  .wait-row { flex-wrap: wrap; gap: 6px; }
+  .wait-meta { gap: 6px; }
+}
+
 /* ---------------------------------------------------------------- utility */
 .mt0 { margin-top: 0; }
 .mb0 { margin-bottom: 0; }
@@ -1054,5 +1148,6 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   }
   body.printing-detail .modal-close,
   body.printing-detail .btn-row,
-  body.printing-detail #grade-form { display: none !important; }
+  body.printing-detail #grade-form,
+  body.printing-detail #edit-details { display: none !important; }
 }
