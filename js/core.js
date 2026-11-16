@@ -46,7 +46,7 @@ const PLACE_LIST = [
   { code: "1.1", name: "بني شيكر" },
   { code: "1.2", name: "فرخانة" },
   { code: "1.3", name: "بني انصار" },
-  { code: "2.1", name: "براقة" },
+  { code: "2.1", name: "ترقاع" },
   { code: "2.2", name: "الناظور المدينة/لعراصي" },
   { code: "3.1", name: "الجمعة" },
   { code: "3.2", name: "اصبانن/تيزيرين" },
@@ -65,10 +65,13 @@ function placeName(code) {
   return p ? p.name : "";
 }
 
-/* يعيد «1.1 — بني شيكر» أو «—» عند غياب المكان */
+/* يعيد «1.1 — بني شيكر» أو «—» عند غياب المكان.
+   الاسم المعتمد هو اسم القائمة الحالية إن كان الرمز معروفًا، حتى يظهر
+   تغيير اسم محطة على كل النسخ القديمة فورًا (بدون انتظار تحديث بياناتها). */
 function placeLabel(code, name) {
-  const n = String(name || placeName(code) || "").trim();
   const c = String(code == null ? "" : code).trim();
+  const canonical = c ? placeName(c) : "";
+  const n = String(canonical || name || "").trim();
   if (c && n) return `${c} — ${n}`;
   return n || c || "—";
 }

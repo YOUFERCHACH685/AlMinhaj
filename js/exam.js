@@ -48,6 +48,9 @@ const S = {
   accessCode: "",        /* رمز المترشح (بيانات الدخول) */
   codeHash: "",          /* بصمة الرمز (تُحفظ في النسخة) */
   unlockPoll: null,
+  resultPoll: null,       /* تحديث حيّ لصفحة النتيجة بعد تعديل المشرف */
+  resultSig: "",
+  resultRefreshing: false,
   finishClock: null,
   finishSince: 0,
   waitSince: 0,
@@ -649,7 +652,7 @@ function canRevealResult(row) {
   return false;
 }
 
-function showResult(rec, graded) {
+function showResult(rec, graded, opts) {
   if (!canRevealResult(rec)) {
     S.finishedRec = rec;
     S.finishedGraded = graded;
@@ -721,7 +724,8 @@ function showResult(rec, graded) {
   }
 
   renderReview(graded, pct);
-  view.scrollIntoView({ behavior: "smooth", block: "start" });
+  /* التحديث التلقائي لا يجب أن يقفز بصفحة المترشح كل 6 ثوانٍ. */
+  if (!opts || !opts.quiet) view.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function renderReview(graded, pct) {
@@ -939,6 +943,8 @@ function setMainView(name) {
     const el = $(s);
     if (el) el.hidden = (s !== name);
   });
+  /* صفحة النتيجة وحدها تحتاج تحديثًا حيًّا بعد تعديلات المشرف. */
+  if (name !== "#view-result") stopResultPoll();
 }
 
 function updateWaitElapsed() {
@@ -1188,7 +1194,50 @@ function showPreviousResult(row) {
   showResultFromRow(row);
 }
 
-function showResultFromRow(row) {
+/* ------------------------------------------------ تحديث حيّ لصفحة النتيجة
+   المشرف قد يعدّل اسم المترشح أو مكانه أو أجوبته أو نقطته بعد النشر.
+   نستطلع نسختنا كل 6 ثوانٍ ونعيد العرض فقط إذا تغيّر شيء فعليًا. */
+function resultSignature(row) {
+  if (!row) return "";
+  const answers = typeof row.answers === "string" ? row.answers : JSON.stringify(row.answers || {});
+  return [
+    row.id, row.candidate_first, row.candidate_last, row.place_code, row.place_name,
+    row.form, row.session_id, row.status, row.official, row.official_at,
+    row.mcq_score, row.open_score, row.final_score, row.percent,
+    row.started_at, row.finished_at, row.duration_sec, answers
+  ].join("|");
+}
+
+function stopResultPoll() {
+  if (S.resultPoll) { clearInterval(S.resultPoll); S.resultPoll = null; }
+}
+
+function startResultPoll() {
+  stopResultPoll();
+  const view = $("#view-result");
+  if (!S.submission || !S.submission.id || !view || view.hidden) return;
+  S.resultSig = resultSignature(S.submission);
+  S.resultPoll = setInterval(refreshOpenResult, 6000);
+}
+
+async function refreshOpenResult() {
+  if (S.resultRefreshing || document.hidden || !S.submission || !S.submission.id) return;
+  const view = $("#view-result");
+  if (!view || view.hidden) return;
+  S.resultRefreshing = true;
+  try {
+    const fresh = await Store.getSubmission(S.submission.id);
+    if (!fresh || !fresh.finished_at) return;
+    const sig = resultSignature(fresh);
+    if (sig === S.resultSig) return;
+    S.resultSig = sig;
+    rememberLocalRow(fresh);
+    showResultFromRow(fresh, { quiet: true });
+  } catch (e) { /* نحتفظ بالعرض الحالي */ }
+  finally { S.resultRefreshing = false; }
+}
+
+function showResultFromRow(row, opts) {
   let data = {};
   if (typeof row.answers === "object" && row.answers) data = row.answers;
   else { try { data = JSON.parse(row.answers || "{}") || {}; } catch (e) { data = {}; } }
@@ -1227,6 +1276,7 @@ function showResultFromRow(row) {
   };
 
   S.submission = row;
+  S.finishedRec = row;
   S.candidate = {
     first: row.candidate_first || "", last: row.candidate_last || "",
     placeCode: row.place_code || "", placeName: row.place_name || ""
@@ -1236,7 +1286,8 @@ function showResultFromRow(row) {
   S.finished = true;
 
   setMainView("#view-result");
-  showResult(row, graded);
+  showResult(row, graded, opts);
+  startResultPoll();
 }
 
 /* ------------------------------------------------------------------- démarrage */
@@ -1413,6 +1464,21 @@ async function handleJoin(c) {
       }
       if (dup.kind.endsWith("waiting")) {
         if (mine || sameCode) {
+          /* إن أعاد المترشح كتابة اسمه أو مكانه عند الاستئناف، نحدّث سجل
+             الانتظار نفسه حتى تظهر البيانات الجديدة عند المشرف. */
+          if (dup.row && dup.row.id) {
+            const patch = {};
+            if (c.first && c.first !== dup.row.candidate_first) patch.candidate_first = c.first;
+            if (c.last && c.last !== dup.row.candidate_last) patch.candidate_last = c.last;
+            if (c.placeCode !== undefined && c.placeCode !== dup.row.place_code) patch.place_code = c.placeCode;
+            if (c.placeName !== undefined && c.placeName !== dup.row.place_name) patch.place_name = c.placeName;
+            if (Object.keys(patch).length) {
+              try {
+                await Store.updateSubmission(dup.row.id, patch);
+                Object.assign(dup.row, patch);
+              } catch (e) { console.warn("تعذّر تحديث بيانات الانتظار", e); }
+            }
+          }
           clearProgress();
           // إعادة قراءة launch قبل البدء
           const fresh = await Store.getLaunch();
@@ -1752,6 +1818,8 @@ function wakeRefresh() {
   if (examView && !examView.hidden && !S.finished) checkSessionEnded();
   const finishView = $("#view-finished");
   if (finishView && !finishView.hidden) checkResultUnlock();
+  const resultView = $("#view-result");
+  if (resultView && !resultView.hidden) refreshOpenResult();
 }
 
 document.addEventListener("visibilitychange", () => {

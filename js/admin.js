@@ -1193,7 +1193,9 @@ function fillResultFilters() {
     activeRows().forEach(r => {
       if (r.place_code && !codes.includes(String(r.place_code))) codes.push(String(r.place_code));
     });
-    const sig = codes.join("|");
+    /* الاسم داخل البصمة أيضًا: تغيير اسم محطة يجب أن يظهر في المرشّح
+       حتى دون إعادة تحميل الصفحة. */
+    const sig = codes.map(c => c + ":" + ((PLACE_LIST.find(p => p.code === c) || {}).name || "")).join("|");
     if (placeSel.dataset.sig !== sig) {
       placeSel.innerHTML = `<option value="">كل الأماكن</option>` + codes.map(c => {
         const nm = (PLACE_LIST.find(p => p.code === c) || {}).name || "";
@@ -1481,13 +1483,30 @@ async function saveEditedRow(row, form) {
       device_id: row.device_id
     }))
   };
-  await Store.updateSubmission(row.id, patch);
-  A.rows = await Store.listSubmissions();
+  /* عرض فوري (تفاؤلي) قبل انتظار الشبكة: لا تبدو الواجهة وكأن التعديل
+     لم يُحفظ إذا تأخّرت استجابة Firebase ثانية أو اثنتين. */
+  A.rows = A.rows.map(r => r.id === row.id ? { ...r, ...patch } : r);
   updatePanelSub();
   renderSession();
   fillResultFilters();
   renderResults();
   renderDash();
+  try {
+    const saved = await Store.updateSubmission(row.id, patch);
+    A.rows = A.rows.map(r => r.id === row.id ? { ...r, ...(saved || {}) } : r);
+    updatePanelSub();
+    renderResults();
+    renderDash();
+  } catch (e) {
+    /* فشل الحفظ: نعيد الصف إلى حالته السابقة. */
+    A.rows = A.rows.map(r => r.id === row.id ? row : r);
+    updatePanelSub();
+    renderSession();
+    fillResultFilters();
+    renderResults();
+    renderDash();
+    throw e;
+  }
 }
 
 /* ---------------------------------------------------------------- détail + notation */
@@ -1766,13 +1785,27 @@ function openAddCandidate() {
           device_id: "manual"
         }))
       };
-      await Store.addSubmission(rec);
-      A.rows = await Store.listSubmissions();
+      /* إضافة تفاؤلية: تظهر النسخة فورًا ثم تُثبَّت في السحابة. */
+      A.rows = [rec, ...A.rows.filter(r => r.id !== rec.id)];
       updatePanelSub();
       renderSession();
       fillResultFilters();
       renderResults();
       renderDash();
+      try {
+        const saved = await Store.addSubmission(rec);
+        A.rows = A.rows.map(r => r.id === rec.id ? { ...r, ...(saved || {}) } : r);
+        renderResults();
+        renderDash();
+      } catch (e) {
+        A.rows = A.rows.filter(r => r.id !== rec.id);
+        updatePanelSub();
+        renderSession();
+        fillResultFilters();
+        renderResults();
+        renderDash();
+        throw e;
+      }
       closeModal();
       toast("أُضيفت النسخة");
     } catch (e) {
